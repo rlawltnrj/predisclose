@@ -1,0 +1,57 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "predisclose"
+version = "0.1.0"
+description = "Before you disclose a vulnerability: check public records, public fixes, and the project's official reporting channel."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+authors = [{ name = "predisclose contributors" }]
+keywords = ["security", "vulnerability", "disclosure", "osv", "ghsa", "cve", "advisory"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Information Technology",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Security",
+]
+dependencies = [
+  "httpx>=0.27",
+  "typer>=0.12",
+  "rich>=13",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.urls]
+Homepage = "https://github.com/rlawltnrj/predisclose"
+Repository = "https://github.com/rlawltnrj/predisclose"
+Issues = "https://github.com/rlawltnrj/predisclose/issues"
+Changelog = "https://github.com/rlawltnrj/predisclose/blob/main/CHANGELOG.md"
+
+[project.scripts]
+predisclose = "predisclose.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/predisclose"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]

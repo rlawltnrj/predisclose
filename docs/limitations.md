@@ -1,0 +1,22 @@
+# Limitations
+
+Read these before trusting a result.
+
+1. **Private reports are invisible.** If someone else reported the same issue privately and it is
+   not public yet, no tool can see it. "No public record" never means "new".
+2. **Matching is textual.** Advisories that describe the same bug in different words, or without
+   naming files or functions, can score *weak*. Read the weak list too when it is short.
+3. **Advisory data lags and has gaps.** Some fixed issues never get an advisory; some advisories
+   list wrong version ranges. When you find a wrong range, consider fixing it upstream in OSV or
+   the GitHub Advisory Database.
+4. **Version to commit is a guess.** Tags are matched by common naming patterns. If your project
+   tags releases differently, pass the exact tag or commit sha as `--version`.
+5. **Only the default branch is searched for commits.** Fixes made only on a release branch are
+   found only when an advisory names them.
+6. **GitHub only, for repository data.** Projects hosted elsewhere still get the public record
+   check through their package, but not the fix or reporting-channel checks.
+7. **SECURITY.md parsing is heuristic.** It handles the common layouts well, but always open the
+   policy and read it. When a project has no `SECURITY.md`, its website may state a different
+   preference than the one shown.
+8. **Rate limits.** Without a token, GitHub allows 60 API requests per hour. One full check uses
+   about 10 of them (more with several `--file` paths). Set `GITHUB_TOKEN`.
