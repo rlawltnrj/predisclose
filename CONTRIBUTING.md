@@ -17,7 +17,9 @@ Tests never touch the network. Use `httpx.MockTransport` like `tests/test_core_o
   `tests/test_route_policy.py` (write it in your own words; do not paste the project's text),
   then fix `parse_policy` in `src/predisclose/checks/route.py`.
 - **A registry we cannot map to a repository.** Extend `src/predisclose/sources/registry.py`.
-- **A tag naming pattern we miss.** Extend `resolve_version` in `src/predisclose/sources/github.py`.
+- **A tag naming pattern we miss.** Extend `resolve_version` in `src/predisclose/sources/github.py`
+  (and `looks_like_range` in `src/predisclose/checks/known.py` if a real tag is mistaken for a
+  range).
 
 ## Rules the code keeps
 

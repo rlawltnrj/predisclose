@@ -18,6 +18,23 @@ NAME = "public_record"
 _EXACT_VERSION = re.compile(r"(\d+!)?v?\d+(\.\d+)*([.+_-]?[0-9A-Za-z][0-9A-Za-z.+_-]*)?")
 
 
+# Words that name many versions, or a moving branch head rather than a tested release.
+_RANGE_WORDS = {"latest", "stable", "next", "head", "any", "all", "*",
+                "main", "master", "develop", "dev", "trunk", "default"}
+
+
+def looks_like_range(version: str) -> bool:
+    """True for things that name many versions (4.x, 2.10.*, >=1.0, ^1.2, ~1.2, latest), as opposed
+    to one release or a tag name such as curl-8_0_0 or openssl-3.0.0."""
+    v = version.strip()
+    if not v or v.lower() in _RANGE_WORDS or "*" in v or " " in v:
+        return True
+    if v[0] in "<>=^~![(":  # comparators and Maven/NuGet ranges such as [1.0,2.0)
+        return True
+    # A number followed by an "x" segment: 4.x, 1.x.x, release-1.x, node-v18.x (not 1.0.0-x.1)
+    return bool(re.search(r"\d\.[xX](?=$|\.)", v))
+
+
 def is_exact_version(version: str) -> bool:
     """True for something like 1.2.3, v0.16.0, 2.0.0-rc1, 20260522 or a Go pseudo-version;
     False for ranges and words such as 4.x, 2.10.*, >=1.0 or latest."""
@@ -113,6 +130,11 @@ def check(http: Http, finding: Finding, advisories: list[Advisory], notes: list[
     evidence.sort(key=lambda e: (LEVELS.index(e.level), e.date or ""), reverse=True)
 
     if not evidence:
+        if finding.package:
+            notes.append(
+                "Advisories are filed per package. If this package mostly bundles others (for example "
+                "rails, whose code lives in actionpack, activerecord and so on), check those too."
+            )
         return CheckResult(
             NAME,
             "none",
@@ -122,11 +144,19 @@ def check(http: Http, finding: Finding, advisories: list[Advisory], notes: list[
         )
     strong = sum(e.level == "strong" for e in evidence)
     medium = sum(e.level == "medium" for e in evidence)
-    count = plural(len(evidence), "public advisory", "public advisories")
-    if any(a.version_checked for a in advisories):
-        summary = f"{count} affect{'s' if len(evidence) == 1 else ''} {finding.target()}"
+    checked = sum(a.version_checked for a in advisories)
+    unchecked = len(advisories) - checked
+    what = f"{finding.ecosystem} {finding.package}" if finding.package else finding.repo
+    if checked and not unchecked:
+        summary = f"{plural(checked, 'public advisory', 'public advisories')} affect"
+        summary += f"{'s' if checked == 1 else ''} {finding.target()}"
+    elif checked:
+        summary = (
+            f"{plural(checked, 'public advisory', 'public advisories')} affect{'s' if checked == 1 else ''} "
+            f"{finding.target()}, plus {unchecked} more for {what} not filtered by version"
+        )
     else:
-        what = f"{finding.ecosystem} {finding.package}" if finding.package else finding.repo
+        count = plural(len(evidence), "public advisory", "public advisories")
         summary = f"{count} for {what} (not filtered by version)"
     if finding.cwe or finding.files or finding.functions or finding.keywords:
         summary += f"; {strong} strong and {medium} medium {'match' if strong + medium == 1 else 'matches'}"

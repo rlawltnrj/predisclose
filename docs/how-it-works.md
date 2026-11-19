@@ -6,13 +6,19 @@ others continue.
 
 ## 0. Finding the repository
 
-If you give a package but no repository, predisclose reads the package's public registry
-metadata (PyPI, npm, crates.io, RubyGems, Packagist; Go module paths on github.com) and, failing
-that, the `source_code_location` of matching GitHub advisories. Advisories that cover packages of
+If you give a package, predisclose first asks its registry whether it exists (PyPI, npm,
+crates.io, RubyGems, Packagist, Maven Central, NuGet, pub.dev, Hex, and the Go module proxy). When
+the registry doesn't know the name and no advisory names it, for the tested version or any other,
+that is reported as a likely typo instead of "no public advisory". When advisories do name it
+(Jenkins or Google Maven artifacts, for example), they are shown with a note. A Go package path
+inside a module (`github.com/gin-gonic/gin/binding`) is found through its module. Without a repository it reads the registry's
+source link (PyPI, npm, crates.io, RubyGems, Packagist, pub.dev, Hex; Go paths on github.com)
+and, failing that, the `source_code_location` of matching GitHub advisories. Advisories that cover packages of
 different projects are ignored for this (several artifacts of one Maven group, npm scope or module
 owner are fine), and a guess is used only when it names the package or all
 advisories agree (most of them, when there are three or more); otherwise predisclose asks for
-`--repo`. Go modules under `golang.org/x/` map to `golang/<name>`. The note under *Public record*
+`--repo`. Go modules under `golang.org/x/` map to `golang/<name>`, and their reporting channel is
+read from `golang/go`, since those repositories are mirrors. The note under *Public record*
 says where the repository came from.
 
 ## 1. Public record

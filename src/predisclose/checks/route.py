@@ -85,6 +85,9 @@ def find_policy(http: Http, repo: str) -> tuple[str, str] | None:
         text = github.raw_file(http, f"{owner}/.github", path)
         if text:
             return f"https://github.com/{owner}/.github/blob/HEAD/{path}", text
+    # The golang/* repositories (crypto, net, ...) are mirrors; Go's policy lives in golang/go.
+    if owner.lower() == "golang" and repo.lower() != "golang/go":
+        return find_policy(http, "golang/go")
     return None
 
 

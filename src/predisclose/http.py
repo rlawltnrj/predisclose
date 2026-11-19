@@ -133,13 +133,18 @@ class Http:
         response = self._send(method, url, params=params, body=body)
         is_github_api = url.startswith("https://api.github.com/")
 
+        if is_github_api and response.status_code == 401 and self.token:
+            raise NetworkError(
+                "GitHub rejected the token in GITHUB_TOKEN (HTTP 401). Create a new one "
+                "(e.g. export GITHUB_TOKEN=$(gh auth token)) or unset it."
+            )
         if is_github_api and response.status_code in (403, 429):
             remaining = response.headers.get("x-ratelimit-remaining")
             if response.status_code == 429 or remaining == "0" or "rate limit" in response.text.lower():
                 reset = response.headers.get("x-ratelimit-reset")
                 when = ""
                 if reset and reset.isdigit():
-                    when = f" (resets at {time.strftime('%H:%M:%S', time.localtime(int(reset)))})"
+                    when = f" (resets at {time.strftime('%H:%M:%S %Z', time.localtime(int(reset)))})"
                 raise RateLimited(
                     "GitHub API rate limit reached"
                     + when

@@ -139,6 +139,10 @@ def _not_found(request):
         return httpx.Response(404, json={"message": "Not Found"})
     if url.startswith("https://api.github.com/repos/"):
         return httpx.Response(404, json={"message": "Not Found"})
+    if url.startswith("https://api.osv.dev/"):
+        return httpx.Response(200, json={"vulns": []})  # no advisory names the typo either
+    if url.startswith("https://api.github.com/advisories"):
+        return httpx.Response(200, json=[])
     return handler(request)
 
 
@@ -252,3 +256,74 @@ def test_security_txt_failure_does_not_hide_security_md(monkeypatch):
     assert result.status == "found", result.summary
     assert "GitHub private vulnerability reporting" in result.summary
     assert any("security.txt could not be read" in n for n in result.notes)
+
+
+def test_registry_404_with_advisories_is_not_a_typo():
+    # Regression: Jenkins/androidx Maven artifacts and Go package paths are absent from Maven
+    # Central / the Go proxy but have advisories; they were reported as misspelled.
+    def elsewhere(request):
+        url = str(request.url)
+        if url.startswith("https://repo1.maven.org/"):
+            return httpx.Response(404, text="")
+        if url.startswith("https://api.osv.dev/"):
+            return httpx.Response(200, json={"vulns": [OSV_VULN]})
+        if url.startswith("https://api.github.com/advisories"):
+            return httpx.Response(200, json=[])
+        return httpx.Response(404, json={})
+
+    http = Http(use_cache=False, transport=httpx.MockTransport(elsewhere))
+    report = run_check(http, Finding(ecosystem="Maven", package="org.jenkins-ci.plugins:script-security",
+                                     version="1.0.0"), ("known",))
+    result = report.results[0]
+    assert result.status == "found"
+    assert any("does not list" in n for n in result.notes)
+
+
+def test_off_registry_package_with_unaffected_version_is_not_a_typo():
+    # Regression: a Jenkins plugin (not on Maven Central) at a version no advisory covers was
+    # called a typo. The package-wide OSV query proves the name is real.
+    def handler_(request):
+        url = str(request.url)
+        if url.startswith("https://repo1.maven.org/"):
+            return httpx.Response(404, text="")
+        if url.startswith("https://api.osv.dev/"):
+            versioned = b'"version"' in request.content
+            return httpx.Response(200, json={"vulns": [] if versioned else [OSV_VULN]})
+        if url.startswith("https://api.github.com/advisories"):
+            return httpx.Response(200, json=[])
+        return httpx.Response(404, json={})
+
+    http = Http(use_cache=False, transport=httpx.MockTransport(handler_))
+    report = run_check(http, Finding(ecosystem="Maven", package="org.jenkins-ci.plugins:script-security",
+                                     version="9999.0"), ("known",))
+    result = report.results[0]
+    assert result.status == "none"
+    assert "Check the spelling" not in result.summary
+    assert any("name is real" in n for n in result.notes)
+
+
+def test_go_package_path_inside_a_module_exists():
+    from predisclose.sources import registry
+
+    def proxy(request):
+        ok = str(request.url) == "https://proxy.golang.org/github.com/gin-gonic/gin/@v/list"
+        return httpx.Response(200 if ok else 404, text="v1.10.0\n" if ok else "not found")
+
+    http = Http(use_cache=False, transport=httpx.MockTransport(proxy))
+    assert registry.lookup(http, "Go", "github.com/gin-gonic/gin/binding")[1] is True
+    assert registry.lookup(http, "Go", "github.com/gin-gonic/gim/binding")[1] is False
+
+
+def test_typo_does_not_get_an_inferred_repository():
+    def typo(request):
+        url = str(request.url)
+        if url.startswith("https://proxy.golang.org/"):
+            return httpx.Response(404, text="")
+        if url.startswith("https://api.osv.dev/"):
+            return httpx.Response(200, json={"vulns": []})
+        return httpx.Response(200, json=[])
+
+    http = Http(use_cache=False, transport=httpx.MockTransport(typo))
+    report = run_check(http, Finding(ecosystem="Go", package="github.com/klauspost/compresss", version="v1.0.0"))
+    assert report.finding.repo is None
+    assert all(r.status == "error" for r in report.results)

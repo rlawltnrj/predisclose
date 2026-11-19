@@ -81,6 +81,8 @@ def _combine(group: list[Advisory]) -> Advisory:
         if adv.url.startswith("https://github.com/advisories/"):
             target.url = adv.url
         target.version_checked = target.version_checked or adv.version_checked
-        target.withdrawn = target.withdrawn or adv.withdrawn
+        # Hide a merged advisory only if every record says withdrawn: showing a stale one is
+        # recoverable, hiding a live one is not.
+        target.withdrawn = target.withdrawn and adv.withdrawn
     target.aliases.discard(target.id)
     return target

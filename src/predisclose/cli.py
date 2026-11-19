@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import tomllib
+from datetime import date
 from pathlib import Path
 from typing import Annotated
 
@@ -43,7 +44,9 @@ def _version_callback(value: bool) -> None:
 def main(
     show_version: Annotated[
         bool,
-        typer.Option("--about", callback=_version_callback, is_eager=True, help="Show the version."),
+        typer.Option(
+            "--about", "--version", callback=_version_callback, is_eager=True, help="Show predisclose's version."
+        ),
     ] = False,
 ) -> None:
     pass
@@ -157,6 +160,8 @@ def check(
         err.print("\n[bold]Requests[/]" + (" (dry run: none were sent)" if dry_run else ""))
         for q in report.queries:
             err.print(f"  {one_line(q)}", markup=False, highlight=False)
+    if report.results and all(r.status == "error" for r in report.results):
+        raise typer.Exit(1)  # nothing could be checked; let scripts and agents notice
 
 
 @app.command()
@@ -225,7 +230,11 @@ def ledger_update(
     finally:
         lg.close()
     if not ok:
-        _fail(f"report #{report_id} not found or nothing to change")
+        lg = _ledger()
+        found = lg.exists(report_id)
+        lg.close()
+        _fail("nothing to change: pass --status, --ids, --url, --public or --notes" if found
+              else f"report #{report_id} not found")
     out.print(f"Updated report #{report_id}")
 
 
@@ -237,8 +246,16 @@ def ledger_list(
     from rich.table import Table
 
     lg = _ledger()
-    rows = lg.all(status)
-    lg.close()
+    try:
+        rows = lg.all(status)
+    except ValueError as exc:
+        _fail(str(exc))
+    finally:
+        lg.close()
+    if not rows:
+        hint = f" with status {status}." if status else " yet. Add one with: predisclose ledger add"
+        out.print("No reports" + hint, markup=False)
+        return
     table = Table()
     for name, wrap in (("#", False), ("Project", True), ("Title", True), ("Channel", False), ("Sent", False),
                        ("Deadline", False), ("Status", False), ("IDs", True), ("Public", False)):
@@ -262,8 +279,10 @@ def ledger_due(
     if not rows:
         out.print(f"Nothing due in the next {within} days.")
         return
+    today = date.today().isoformat()
     for r in rows:
-        line = f"#{r['id']}  {r['deadline']}  {r['status']:<12} {r['project']}  {r['title']}"
+        when = "OVERDUE" if r["deadline"] < today else "due    "
+        line = f"#{r['id']}  {when} {r['deadline']}  {r['status']:<12} {r['project']}  {r['title']}"
         out.print(one_line(line), markup=False, highlight=False)
 
 

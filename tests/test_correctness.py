@@ -319,12 +319,34 @@ def test_withdrawn_advisories_are_left_out_with_a_note():
 @pytest.mark.parametrize("summary,gone", [
     ("REJECTED (not a vulnerability): improperly controlled modification", True),
     ("[Withdrawn] duplicate of GHSA-xxxx", True),
+    ("Withdrawn Advisory: express improperly controls modification", True),
+    ("Invalid Curve Attack in node-jose", False),
+    ("Withdrawn tokens are still accepted after logout", False),
     ("Rejection sampling bug allows bias", False),
     ("Invalidated session tokens are still accepted", False),
 ])
 def test_retracted_repository_advisory_titles(summary, gone):
-    adv = ghsa.to_advisory({"ghsa_id": "GHSA-aaaa-bbbb-cccc", "summary": summary}, version_checked=False)
-    assert adv.withdrawn is gone
+    http = Http(use_cache=False, transport=httpx.MockTransport(
+        lambda r: httpx.Response(200, json=[{"ghsa_id": "GHSA-aaaa-bbbb-cccc", "summary": summary}])))
+    assert ghsa.repo_advisories(http, "a/b")[0].withdrawn is gone
+
+
+def test_global_advisory_titles_never_mean_withdrawn():
+    # Regression: "Invalid Curve Attack in node-jose" (GHSA-rvj9-8cvx-3vq9) was hidden as withdrawn.
+    for summary in ["Invalid Curve Attack in node-jose", "REJECTED (not a vulnerability): x"]:
+        assert ghsa.to_advisory({"ghsa_id": "GHSA-aaaa-bbbb-cccc", "summary": summary},
+                                version_checked=True).withdrawn is False
+    assert ghsa.to_advisory({"ghsa_id": "GHSA-aaaa-bbbb-cccc", "withdrawn_at": "2025-01-01"},
+                            version_checked=True).withdrawn is True
+
+
+def test_merged_advisory_is_hidden_only_if_every_record_is_withdrawn():
+    from predisclose.sources.advisory import merge
+
+    live = Advisory(id="GHSA-aaaa-bbbb-cccc", sources={"osv"})
+    gone = Advisory(id="GHSA-aaaa-bbbb-cccc", sources={"ghsa"}, withdrawn=True)
+    assert merge([live, gone])[0].withdrawn is False
+    assert merge([gone, Advisory(id="GHSA-aaaa-bbbb-cccc", withdrawn=True)])[0].withdrawn is True
 
 
 def test_activity_ignores_withdrawn_advisories():
@@ -342,3 +364,125 @@ def test_activity_ignores_withdrawn_advisories():
     result = activity.check(http, Finding(ecosystem="npm", package="express", repo="expressjs/express"),
                             now=datetime(2026, 11, 19, tzinfo=UTC))
     assert result.evidence == []
+
+
+# -- fresh-user review of 0.1.3 ------------------------------------------------------
+
+
+@pytest.mark.parametrize("eco,name,url_part", [
+    ("Maven", "com.fasterxml.jackson.core:jackson-databnd", "repo1.maven.org/maven2/com/fasterxml/jackson/core/"),
+    ("NuGet", "Newtonsoft.Jsn", "api.nuget.org/v3-flatcontainer/newtonsoft.jsn/"),
+    ("Go", "golang.org/x/nett", "proxy.golang.org/golang.org/x/nett/@v/list"),
+    ("Pub", "httpx_nope", "pub.dev/api/packages/httpx_nope"),
+    ("Hex", "plugg", "hex.pm/api/packages/plugg"),
+])
+def test_misspelled_packages_in_more_registries(eco, name, url_part):
+    from predisclose.sources import registry
+
+    asked = []
+
+    def handler(request):
+        asked.append(str(request.url))
+        return httpx.Response(404, text="not found")
+
+    http = Http(use_cache=False, transport=httpx.MockTransport(handler))
+    assert registry.lookup(http, eco, name) == (None, False)
+    assert any(url_part in u for u in asked), asked
+
+
+def test_go_stdlib_is_not_looked_up_in_the_module_proxy():
+    from predisclose.sources import registry
+
+    http = Http(use_cache=False, transport=httpx.MockTransport(lambda r: httpx.Response(404)))
+    assert registry.lookup(http, "Go", "stdlib") == (None, None)
+    assert http.queries == []
+
+
+def test_go_module_path_is_case_escaped():
+    from predisclose.sources.registry import _go_escape
+
+    assert _go_escape("github.com/Azure/azure-sdk") == "github.com/!azure/azure-sdk"
+
+
+def test_prefixed_tags_are_accepted_for_fixes():
+    from predisclose.checks import fixes
+
+    asked = []
+
+    def handler(request):
+        asked.append(str(request.url))
+        return httpx.Response(404, json={})
+
+    http = Http(use_cache=False, transport=httpx.MockTransport(handler))
+    result = fixes.check(http, Finding(repo="curl/curl", version="curl-8_0_0"))
+    assert "not an exact version" not in result.summary
+    assert any("/commits/curl-8_0_0" in u for u in asked)
+
+
+def test_rejected_token_is_reported_as_such():
+    def handler(request):
+        return httpx.Response(401, json={"message": "Bad credentials"})
+
+    http = Http(use_cache=False, transport=httpx.MockTransport(handler), token="ghp_expired")
+    with pytest.raises(Exception, match="rejected the token"):
+        http.get_json("https://api.github.com/repos/a/b")
+
+
+def test_exit_code_is_1_when_every_check_errored(monkeypatch):
+    from predisclose import cli
+
+    class Broken(Http):
+        def __init__(self, *a, **k):
+            super().__init__(use_cache=False, transport=httpx.MockTransport(lambda r: httpx.Response(503)))
+
+    monkeypatch.setattr(cli, "Http", Broken)
+    result = CliRunner().invoke(cli.app, ["check", "--pkg", "pypi:jinja2", "--version", "2.10", "--only", "known"])
+    assert result.exit_code == 1
+
+
+def test_repo_only_summary_separates_filtered_and_unfiltered():
+    f = Finding(repo="pallets/flask", version="2.2.0")
+    advs = [Advisory(id="GHSA-aaaa-aaaa-aaaa", version_checked=True),
+            Advisory(id="GHSA-bbbb-bbbb-bbbb", version_checked=False)]
+    http = Http(use_cache=False, transport=httpx.MockTransport(lambda r: httpx.Response(404)))
+    summary = known.check(http, f, advs, []).summary
+    assert "1 public advisory affects" in summary and "1 more" in summary and "not filtered" in summary
+
+
+def test_golang_mirrors_use_the_go_policy():
+    from predisclose.checks import route
+
+    def handler(request):
+        url = str(request.url)
+        if url.startswith("https://raw.githubusercontent.com/golang/go/") and url.endswith("/SECURITY.md"):
+            return httpx.Response(200, text="See https://go.dev/security/policy for how to report.\n")
+        return httpx.Response(404, text="")
+
+    http = Http(use_cache=False, transport=httpx.MockTransport(handler))
+    found = route.find_policy(http, "golang/net")
+    assert found and "golang/go" in found[0]
+
+
+def test_empty_result_suggests_component_packages():
+    http = Http(use_cache=False, transport=httpx.MockTransport(lambda r: httpx.Response(404)))
+    result = known.check(http, Finding(ecosystem="RubyGems", package="rails", version="6.0.0"), [], [])
+    assert result.status == "none"
+    assert any("actionpack" in n for n in result.notes)
+
+
+@pytest.mark.parametrize("v,is_range", [
+    ("4.x", True), ("1.x.x", True), ("release-1.x", True), ("node-v18.x", True), ("[1.0,2.0)", True),
+    ("main", True), ("master", True), ("latest", True), (">=1.0", True), ("2.10.*", True),
+    ("curl-8_0_0", False), ("openssl-3.0.0", False), ("v1.2.3", False), ("1.0.0-x.1", False),
+    ("1.2.3-alpha.x", False), ("X.Org-1.0", False), ("xz-5.4.0", False), ("abc1234", False),
+])
+def test_looks_like_range(v, is_range):
+    from predisclose.checks.known import looks_like_range
+
+    assert looks_like_range(v) is is_range
+
+
+def test_withdrawn_word_inside_a_real_title_is_kept():
+    rows = [{"ghsa_id": "GHSA-aaaa-bbbb-cccc", "summary": "Withdrawn-token reuse in X"}]
+    http = Http(use_cache=False, transport=httpx.MockTransport(lambda r: httpx.Response(200, json=rows)))
+    assert ghsa.repo_advisories(http, "a/b")[0].withdrawn is False

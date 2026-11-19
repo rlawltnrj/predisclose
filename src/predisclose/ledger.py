@@ -73,6 +73,11 @@ class Ledger:
         today: date | None = None,
     ) -> int:
         _check_status(status)
+        if not project.strip() or not title.strip():
+            raise ValueError("project and title must not be empty")
+        if deadline_days < 0:
+            raise ValueError("deadline days must be 0 or more")
+        _check_url(url)
         today = today or date.today()
         try:
             sent_date = date.fromisoformat(sent_on) if sent_on else today
@@ -94,6 +99,8 @@ class Ledger:
         unknown = set(changes) - set(FIELDS)
         if unknown:
             raise ValueError(f"unknown fields: {', '.join(sorted(unknown))}")
+        if "url" in changes:
+            _check_url(changes["url"])
         if "status" in changes:
             _check_status(changes["status"])
             if changes["status"] == "published" and "public" not in changes:
@@ -110,8 +117,12 @@ class Ledger:
         self.db.commit()
         return cur.rowcount > 0
 
+    def exists(self, report_id: int) -> bool:
+        return self.db.execute("SELECT 1 FROM reports WHERE id = ?", (report_id,)).fetchone() is not None
+
     def all(self, status: str | None = None) -> list[dict[str, Any]]:
         if status:
+            _check_status(status)
             rows = self.db.execute(
                 "SELECT * FROM reports WHERE status = ? ORDER BY id", (status,)
             ).fetchall()
@@ -124,6 +135,11 @@ class Ledger:
         return [
             r for r in self.all() if r["status"] not in CLOSED and r["deadline"] and r["deadline"] <= limit
         ]
+
+
+def _check_url(url: str) -> None:
+    if url and not url.lower().startswith(("https://", "http://")):
+        raise ValueError(f"url must start with https:// or http://, got {url!r}")
 
 
 def _check_status(status: str) -> None:

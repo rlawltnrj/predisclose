@@ -69,9 +69,28 @@ def test_bad_date_is_rejected(lg):
 
 def test_export_escapes_markdown(lg):
     rid = lg.add("acme/open", "Bad | title [x](javascript:alert(1)) <b>", sent_on="2026-02-01")
-    lg.update(rid, status="published", url="javascript:alert(1)")
+    lg.update(rid, status="published")
+    # Older ledgers may hold such a URL (input is validated since 0.1.3); export must stay safe.
+    lg.db.execute("UPDATE reports SET url = ? WHERE id = ?", ("javascript:alert(1)", rid))
     text = export(lg.all(), "md")
     import re
 
     assert re.search(r"(?<!\\)\]\(javascript", text) is None  # no live link to javascript:
     assert "\\|" in text and "<b>" not in text  # table cell and HTML are neutralized
+
+
+def test_bad_ledger_input_is_rejected(lg):
+    import pytest
+
+    with pytest.raises(ValueError):
+        lg.add("", "title")
+    with pytest.raises(ValueError):
+        lg.add("a/b", "t", deadline_days=-5)
+    with pytest.raises(ValueError):
+        lg.add("a/b", "t", url="javascript:alert(1)")
+    rid = lg.add("a/b", "t")
+    with pytest.raises(ValueError):
+        lg.update(rid, url="javascript:alert(1)")
+    with pytest.raises(ValueError):
+        lg.all("nope")
+    assert lg.exists(rid) and not lg.exists(rid + 100)

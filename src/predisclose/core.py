@@ -11,7 +11,7 @@ from predisclose import __version__
 from predisclose.checks import activity, fixes, known, route
 from predisclose.http import Http, NetworkError, RateLimited
 from predisclose.models import CheckResult, Finding, Report
-from predisclose.sources import github, registry
+from predisclose.sources import github, osv, registry
 
 ALL_CHECKS = ("known", "fixes", "activity", "route")
 CHECK_NAMES = {
@@ -68,14 +68,53 @@ def run_check(http: Http, finding: Finding, checks: Iterable[str] = ALL_CHECKS) 
             inferred, exists = registry.lookup(http, finding.ecosystem, finding.package)
         except Exception:
             inferred, exists = None, None
-        if exists is False and not http.dry_run:
-            package_problem = (
-                f"{finding.ecosystem} has no package named {finding.package!r}. Check the spelling: "
-                "results for a wrong name say nothing about your finding."
-            )
-        if not finding.repo and inferred:
+        registry_missing = exists is False and not http.dry_run
+        if not finding.repo and inferred and not registry_missing:
             finding.repo = inferred
             repo_note = f"Repository {inferred} taken from {finding.ecosystem} metadata."
+    else:
+        registry_missing = False
+
+    advisories, gather_notes = [], []
+    gather_failed = False
+    if "known" in wanted or not finding.repo or registry_missing:
+        try:
+            advisories, gather_notes = known.gather(http, finding)
+        except Exception as exc:
+            gather_failed = True
+            message = str(exc) if isinstance(exc, (RateLimited, NetworkError)) else (
+                f"Unexpected data ({type(exc).__name__}): {exc}"
+            )
+            if "known" in wanted:
+                results.append(CheckResult(known.NAME, "error", "none", message))
+            wanted = [c for c in wanted if c != "known"]
+
+    # A registry "not found" usually means a typo, but some packages live elsewhere (Jenkins and
+    # Google Maven artifacts, Go package paths inside a module). Only call it a typo when the
+    # advisory databases know nothing about the name either.
+    if registry_missing and not advisories and not gather_failed and finding.version:
+        # The tested version may simply be unaffected; ask once more for the package as a whole.
+        try:
+            registry_missing = not osv.query_package(http, finding.ecosystem, finding.package)
+        except Exception:
+            registry_missing = False  # can't tell; don't call it a typo
+        if not registry_missing:
+            gather_notes.insert(
+                0,
+                f"The {finding.ecosystem} registry does not list {finding.package!r}, but OSV has "
+                "advisories for other versions of it, so the name is real.",
+            )
+    if registry_missing and not advisories and not gather_failed:
+        package_problem = (
+            f"{finding.ecosystem} has no package named {finding.package!r}, and no advisory names it. "
+            "Check the spelling: results for a wrong name say nothing about your finding."
+        )
+    elif registry_missing and advisories:
+        gather_notes.insert(
+            0,
+            f"The {finding.ecosystem} registry does not list {finding.package!r} (it may be hosted "
+            "elsewhere or be part of a larger module); the advisories come from OSV and GitHub.",
+        )
 
     if finding.repo and not http.dry_run and not package_problem:
         try:
@@ -83,18 +122,6 @@ def run_check(http: Http, finding: Finding, checks: Iterable[str] = ALL_CHECKS) 
                 repo_problem = f"Repository {finding.repo} not found or not public. Check the name."
         except Exception:
             pass
-
-    advisories, gather_notes = [], []
-    if not package_problem and ("known" in wanted or not finding.repo):
-        try:
-            advisories, gather_notes = known.gather(http, finding)
-        except Exception as exc:
-            message = str(exc) if isinstance(exc, (RateLimited, NetworkError)) else (
-                f"Unexpected data ({type(exc).__name__}): {exc}"
-            )
-            if "known" in wanted:
-                results.append(CheckResult(known.NAME, "error", "none", message))
-            wanted = [c for c in wanted if c != "known"]
 
     if not finding.repo:
         hint, why = repo_from_advisories(finding, advisories)

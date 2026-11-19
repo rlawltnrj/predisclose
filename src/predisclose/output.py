@@ -74,7 +74,8 @@ def to_terminal(report: Report, console: Console, *, max_evidence: int = 5) -> N
             console.print(f"  [dim]... {len(r.evidence) - max_evidence} more (use --json)[/]")
         for note in r.notes:
             console.print(f"  [dim]note: {_t(note)}[/]", highlight=False)
-    console.print(f"\n[dim]{_t(report.disclaimer)}[/]", highlight=False)
+    if any(r.status in ("found", "none") for r in report.results):
+        console.print(f"\n[dim]{_t(report.disclaimer)}[/]", highlight=False)
 
 
 def to_markdown(report: Report, *, max_evidence: int = 10) -> str:

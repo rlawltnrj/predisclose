@@ -1,15 +1,43 @@
 # Changelog
 
-## Unreleased
+## 0.1.3 (2026-11-19)
 
-Fixes
-- Withdrawn advisories are left out (with a note naming them), including repository advisories
-  that stay "published" with a title such as "REJECTED (not a vulnerability)". Previously a
-  withdrawn express advisory was listed as affecting 4.17.1 and counted as recent activity.
+Fixes from a pre-release review and an end-to-end check as a new user.
 
-Project
-- README: a short demo GIF of a real run (`docs/demo.gif`, made by `scripts/demo_gif.py`); the
-  GIF is left out of the source distribution.
+Correctness
+- Withdrawn advisories are left out, with a note naming them: global advisories with
+  `withdrawn_at` or OSV `withdrawn`, and repository advisories that stay "published" with a title
+  starting with a marker such as "REJECTED (not a vulnerability): ..." (titles like "Invalid curve
+  attack ..." are never treated as withdrawn). A merged advisory is hidden only if every source
+  agrees it was withdrawn. Previously a withdrawn express advisory was listed as affecting 4.17.1.
+- A misspelled package is now an error for Maven, NuGet, Go, Pub and Hex too (it read as "No
+  public advisory found"). For every registry, a name the registry doesn't list is called a typo
+  only when no advisory names it for any version; packages hosted elsewhere (Jenkins, Google
+  Maven) keep their advisories, with a note, and Go package paths are found through their module. pub.dev and Hex also supply the source
+  repository.
+- Real tag names such as `curl-8_0_0` or `openssl-3.0.0` are accepted again for the public-fix
+  check; ranges (`4.x`, `>=1.0`, `[1.0,2.0)`, `latest`) and branch names (`main`, `master`) are
+  refused, since a branch head is not a tested release.
+- Repository-only checks say how many advisories affect the version and how many more are not
+  filtered by version, instead of "N affect" for all of them.
+- The reporting channel for `golang.org/x/...` modules comes from Go's own policy (`golang/go`).
+- An empty public record for a package suggests checking component packages (e.g. rails →
+  actionpack).
+- A rejected `GITHUB_TOKEN` is reported as such, not as "repository not found".
+- `check` exits with status 1 when every check errored; the closing disclaimer is shown only when
+  something was checked.
+- "No release mentions security terms" now suggests `--file`.
+
+Ledger
+- Empty project or title, a negative deadline, a non-http(s) URL and an unknown `--status` filter
+  are rejected. `ledger due` marks overdue reports, `ledger list` says when there are none, and
+  `ledger update` tells "not found" apart from "nothing to change".
+
+CLI and docs
+- `predisclose --version` shows the version (as `--about` does); `check --version` is unchanged.
+- The rate-limit reset time shows its time zone.
+- README: a short demo GIF of a real run (`docs/demo.gif`, made by `scripts/demo_gif.py`), left
+  out of the source distribution. Docs list the registries contacted and two more limitations.
 
 ## 0.1.2 (2026-11-19)
 

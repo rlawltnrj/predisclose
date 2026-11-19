@@ -19,8 +19,11 @@ Read these before trusting a result.
    wrong (packages of one family, such as `node-fetch` and `node-forge`, look alike) or missing
    (an advisory spanning `System.*` and `Microsoft.*` NuGet packages). The output says where the
    repository came from; pass `--repo` when it is wrong or missing.
-7. **SECURITY.md parsing is heuristic.** It handles the common layouts and common ways of saying
+7. **Some layouts are missed.** A policy stored only as lowercase `security.md` is not read
+   (GitHub private reporting is still checked). Go advisories name package paths such as
+   `golang.org/x/net/html`, so `--file html/token.go` may not match them; pass `--function`.
+8. **SECURITY.md parsing is heuristic.** It handles the common layouts and common ways of saying
    "do not use X", but not every phrasing. Always open the policy and read it. When a project has no `SECURITY.md`, its website may state a different
    preference than the one shown.
-8. **Rate limits.** Without a token, GitHub allows 60 API requests per hour. One full check uses
+9. **Rate limits.** Without a token, GitHub allows 60 API requests per hour. One full check uses
    about 10 of them (more with several `--file` paths). Set `GITHUB_TOKEN`.

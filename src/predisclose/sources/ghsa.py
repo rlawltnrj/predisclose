@@ -10,7 +10,13 @@ from predisclose.http import Http, NetworkError
 from predisclose.sources.advisory import Advisory
 
 API = "https://api.github.com"
-RETRACTED_TITLE = re.compile(r"\W*(withdrawn|rejected|retracted|invalid)\b", re.IGNORECASE)
+# A repository advisory that was retracted often stays "published" with a title like
+# "REJECTED (not a vulnerability): ..." or "[Withdrawn] ...". Only a marker word followed by
+# punctuation counts, and only for repository advisories: "Invalid Curve Attack in ..." and
+# other real titles must never be dropped.
+RETRACTED_TITLE = re.compile(
+    r"^\W*(withdrawn|rejected|retracted)\b(\s+advisory)?(\s*[:(\]]|\s+-)", re.IGNORECASE
+)
 PAGE = 100  # one page; callers add a note when a list is this long
 
 
@@ -38,7 +44,11 @@ def repo_advisories(http: Http, repo: str) -> list[Advisory]:
         return []
     if status != 200 or not isinstance(data, list):
         raise NetworkError(f"GitHub repository advisories query failed (HTTP {status})")
-    return [to_advisory(a, version_checked=False) for a in data]
+    advisories = [to_advisory(a, version_checked=False) for a in data]
+    for raw, adv in zip(data, advisories, strict=True):
+        if isinstance(raw, dict) and RETRACTED_TITLE.match(str(raw.get("summary") or "")):
+            adv.withdrawn = True
+    return advisories
 
 
 def _family(name: str) -> str:
@@ -100,7 +110,5 @@ def to_advisory(a: dict[str, Any], *, version_checked: bool) -> Advisory:
         repo_hint=parse_repo(a.get("source_code_location") or "") if len({_family(p) for p in packages}) <= 1 else None,
         fix_refs=fix_refs,
         version_checked=version_checked,
-        # The global database sets withdrawn_at; a repository advisory that was retracted often
-        # stays "published" with a title such as "REJECTED (not a vulnerability): ...".
-        withdrawn=bool(a.get("withdrawn_at")) or bool(RETRACTED_TITLE.match(str(a.get("summary") or ""))),
+        withdrawn=bool(a.get("withdrawn_at")),
     )

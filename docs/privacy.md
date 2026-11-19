@@ -8,7 +8,7 @@ does not leak one.
 | Sent | To |
 |---|---|
 | ecosystem, package name, version | OSV, GitHub Advisory Database |
-| ecosystem, package name | the package registry (to find the repository) |
+| ecosystem, package name | the package registry (to check it exists and find the repository) |
 | commit sha of the tested version (repository-only checks) | OSV |
 | repository name, version or commit, package name (in tag guesses such as `name-1.2.3`), file paths you passed | GitHub API |
 | repository name | raw.githubusercontent.com (to read `SECURITY.md`) |

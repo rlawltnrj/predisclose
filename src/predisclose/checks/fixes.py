@@ -5,9 +5,8 @@ from __future__ import annotations
 import posixpath
 import re
 
-from predisclose.checks.known import is_exact_version
+from predisclose.checks.known import looks_like_range
 from predisclose.checks.similarity import score
-from predisclose.ecosystems import looks_like_sha
 from predisclose.http import Http
 from predisclose.models import LEVELS, CheckResult, Evidence, Finding, max_level, plural
 from predisclose.sources import github
@@ -115,7 +114,7 @@ def check(http: Http, finding: Finding, advisories: list[Advisory] | None = None
     if not finding.version:
         return CheckResult(NAME, "skipped", "none", "Need --version to know where to start.")
 
-    if not is_exact_version(finding.version) and not looks_like_sha(finding.version):
+    if looks_like_range(finding.version):
         return CheckResult(
             NAME,
             "skipped",
@@ -218,7 +217,8 @@ def check(http: Http, finding: Finding, advisories: list[Advisory] | None = None
                 NAME,
                 "none",
                 "none",
-                f"No release since {ref} ({since[:10]}) mentions security terms.",
+                f"No release since {ref} ({since[:10]}) mentions security terms "
+                "(many projects don't describe fixes in release notes; pass --file to check commits).",
                 notes=notes,
             )
         summary = (
