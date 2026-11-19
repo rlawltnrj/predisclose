@@ -15,6 +15,8 @@ import httpx
 
 from predisclose import __version__
 
+NOT_FOUND_TTL = 30 * 60
+
 
 class RateLimited(Exception):
     """GitHub refused the request because the hourly or per-minute quota is used up."""
@@ -157,7 +159,11 @@ class Http:
         if self._db is None:
             return None
         row = self._db.execute("SELECT t, status, body FROM cache WHERE k = ?", (key,)).fetchone()
-        if row is None or time.time() - row[0] > self.ttl:
+        if row is None:
+            return None
+        # "Not found" answers expire sooner: new packages, policies and advisories appear all the time.
+        ttl = min(self.ttl, NOT_FOUND_TTL) if int(row[1]) == 404 else self.ttl
+        if time.time() - row[0] > ttl:
             return None
         return int(row[1]), str(row[2])
 

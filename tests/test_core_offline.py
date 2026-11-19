@@ -110,3 +110,24 @@ def test_cli_dry_run_sends_nothing():
 def test_cli_rejects_bad_input():
     result = CliRunner().invoke(app, ["check", "--pkg", "widget"])
     assert result.exit_code == 2
+
+
+def test_not_found_answers_expire_sooner(tmp_path, monkeypatch):
+    import predisclose.http as http_mod
+
+    calls = []
+
+    def counting(request):
+        calls.append(str(request.url))
+        return httpx.Response(404, text="")
+
+    h = Http(cache_dir=tmp_path, transport=httpx.MockTransport(counting))
+    h.get_text("https://raw.githubusercontent.com/a/b/HEAD/SECURITY.md")
+    h.get_text("https://raw.githubusercontent.com/a/b/HEAD/SECURITY.md")
+    assert len(calls) == 1  # cached
+
+    real_time = http_mod.time.time
+    monkeypatch.setattr(http_mod.time, "time", lambda: real_time() + http_mod.NOT_FOUND_TTL + 1)
+    h.get_text("https://raw.githubusercontent.com/a/b/HEAD/SECURITY.md")
+    assert len(calls) == 2  # 404 expired, 200s would still be cached
+    h.close()

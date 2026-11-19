@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- "Not found" answers are cached for 30 minutes instead of 6 hours, so newly published
+  packages, policies and advisories show up sooner.
+
 ## 0.1.0 (2026-11-19)
 
 First release.
