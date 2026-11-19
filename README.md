@@ -36,7 +36,7 @@ followed, and the reporting channel came from the organization-wide policy in `p
 - It does **not** say a finding is new. Reports sent privately by other people are invisible to everyone except the maintainers. "No public record" is the strongest thing any tool can honestly say.
 - It does **not** reproduce, scan, or test anything. It only reads public metadata.
 - It does **not** send reports for you or post anything anywhere.
-- It does **not** send your description of the issue anywhere. Only the package name, version, file paths, and CWE ids leave your machine, as listed by `--show-queries`.
+- It does **not** send your description of the issue anywhere. Only the package name, version, repository, and the file paths you pass leave your machine; CWE ids, function names and keywords are matched locally. `--show-queries` lists every request.
 
 ## Install
 

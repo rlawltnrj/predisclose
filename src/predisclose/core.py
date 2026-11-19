@@ -9,7 +9,7 @@ from predisclose import __version__
 from predisclose.checks import activity, fixes, known, route
 from predisclose.http import Http, NetworkError, RateLimited
 from predisclose.models import CheckResult, Finding, Report
-from predisclose.sources import registry
+from predisclose.sources import github, registry
 
 ALL_CHECKS = ("known", "fixes", "activity", "route")
 CHECK_NAMES = {
@@ -27,28 +27,49 @@ def _guard(name: str, fn) -> CheckResult:
         return CheckResult(name, "error", "none", str(exc))
     except NetworkError as exc:
         return CheckResult(name, "error", "none", f"Network error: {exc}")
+    except Exception as exc:  # one strange public record must not stop the other checks
+        return CheckResult(name, "error", "none", f"Unexpected data ({type(exc).__name__}): {exc}")
 
 
 def run_check(http: Http, finding: Finding, checks: Iterable[str] = ALL_CHECKS) -> Report:
     wanted = [c for c in ALL_CHECKS if c in set(checks)]
     results: list[CheckResult] = []
-
-    # Map a package to its source repository when the user did not give one.
     repo_note = None
-    if not finding.repo and finding.package and finding.ecosystem:
+    package_problem = None  # set when the registry says the package does not exist
+    repo_problem = None  # set when GitHub says the repository does not exist
+
+    # Map a package to its source repository when the user did not give one, and catch typos:
+    # a misspelled package name would otherwise look like "no public record".
+    if finding.package and finding.ecosystem:
         try:
-            finding.repo = registry.infer_repo(http, finding.ecosystem, finding.package)
-            if finding.repo:
-                repo_note = f"Repository {finding.repo} taken from {finding.ecosystem} metadata."
-        except (RateLimited, NetworkError):
+            inferred, exists = registry.lookup(http, finding.ecosystem, finding.package)
+        except Exception:
+            inferred, exists = None, None
+        if exists is False and not http.dry_run:
+            package_problem = (
+                f"{finding.ecosystem} has no package named {finding.package!r}. Check the spelling: "
+                "results for a wrong name say nothing about your finding."
+            )
+        if not finding.repo and inferred:
+            finding.repo = inferred
+            repo_note = f"Repository {inferred} taken from {finding.ecosystem} metadata."
+
+    if finding.repo and not http.dry_run and not package_problem:
+        try:
+            if github.repo_info(http, finding.repo) is None:
+                repo_problem = f"Repository {finding.repo} not found or not public. Check the name."
+        except Exception:
             pass
 
     advisories, gather_notes = [], []
-    if "known" in wanted or not finding.repo:
+    if not package_problem and ("known" in wanted or not finding.repo):
         try:
             advisories, gather_notes = known.gather(http, finding)
-        except (RateLimited, NetworkError) as exc:
-            results.append(CheckResult(known.NAME, "error", "none", str(exc)))
+        except Exception as exc:
+            message = str(exc) if isinstance(exc, (RateLimited, NetworkError)) else (
+                f"Unexpected data ({type(exc).__name__}): {exc}"
+            )
+            results.append(CheckResult(known.NAME, "error", "none", message))
             wanted = [c for c in wanted if c != "known"]
 
     if not finding.repo:
@@ -57,17 +78,34 @@ def run_check(http: Http, finding: Finding, checks: Iterable[str] = ALL_CHECKS) 
             finding.repo = hint
             repo_note = f"Repository {hint} taken from advisory data."
 
+    def blocked(name: str, needs_repo: bool) -> CheckResult | None:
+        if package_problem:
+            return CheckResult(name, "error", "none", package_problem)
+        if repo_problem and (needs_repo or not finding.package):
+            return CheckResult(name, "error", "none", repo_problem)
+        return None
+
     if "known" in wanted:
-        result = known.check(http, finding, advisories, gather_notes)
-        if repo_note:
+        result = blocked(known.NAME, needs_repo=False) or _guard(
+            known.NAME, lambda: known.check(http, finding, advisories, gather_notes)
+        )
+        if repo_note and result.status != "error":
             result.notes.append(repo_note)
         results.append(result)
     if "fixes" in wanted:
-        results.append(_guard(fixes.NAME, lambda: fixes.check(http, finding, advisories)))
+        results.append(
+            blocked(fixes.NAME, needs_repo=True)
+            or _guard(fixes.NAME, lambda: fixes.check(http, finding, advisories))
+        )
     if "activity" in wanted:
-        results.append(_guard(activity.NAME, lambda: activity.check(http, finding)))
+        results.append(
+            blocked(activity.NAME, needs_repo=False)
+            or _guard(activity.NAME, lambda: activity.check(http, finding))
+        )
     if "route" in wanted:
-        results.append(_guard(route.NAME, lambda: route.check(http, finding.repo)))
+        results.append(
+            blocked(route.NAME, needs_repo=True) or _guard(route.NAME, lambda: route.check(http, finding.repo))
+        )
 
     return Report(
         tool_version=__version__,

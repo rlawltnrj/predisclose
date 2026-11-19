@@ -54,3 +54,24 @@ def test_due(lg):
 def test_bad_status(lg):
     with pytest.raises(ValueError):
         lg.add("a/b", "x", status="lost")
+
+
+def test_basic_iso_date_is_normalized(lg):
+    lg.add("acme/secret", "x", sent_on="20260315")
+    assert lg.all()[0]["sent_on"] == "2026-03-15"
+    assert "2026-03 " in export(lg.all(), "md").replace("|", " ")
+
+
+def test_bad_date_is_rejected(lg):
+    with pytest.raises(ValueError):
+        lg.add("a/b", "x", sent_on="15/03/2026")
+
+
+def test_export_escapes_markdown(lg):
+    rid = lg.add("acme/open", "Bad | title [x](javascript:alert(1)) <b>", sent_on="2026-02-01")
+    lg.update(rid, status="published", url="javascript:alert(1)")
+    text = export(lg.all(), "md")
+    import re
+
+    assert re.search(r"(?<!\\)\]\(javascript", text) is None  # no live link to javascript:
+    assert "\\|" in text and "<b>" not in text  # table cell and HTML are neutralized

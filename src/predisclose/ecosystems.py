@@ -62,7 +62,13 @@ def parse_package(spec: str) -> tuple[str, str]:
     return ALIASES[key], name
 
 
-_GITHUB_URL = re.compile(r"github\.com[/:]([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)")
+_GITHUB_URL = re.compile(r"(?:^|[/@])(?:www\.)?github\.com[/:]([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)")
+# github.com/<these>/... are GitHub pages, not repositories.
+_NOT_OWNERS = {
+    "sponsors", "orgs", "marketplace", "apps", "settings", "features", "topics", "collections",
+    "enterprise", "about", "pricing", "login", "notifications", "explore", "users", "security",
+    "advisories", "site", "contact", "readme", "trending", "events", "customer-stories",
+}
 _OWNER_NAME = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 
 
@@ -81,6 +87,8 @@ def parse_repo(text: str | None) -> str | None:
     name = name.removesuffix(".git")
     if not owner or not name or owner in {".", ".."} or name in {".", ".."}:
         return None
+    if owner.lower() in _NOT_OWNERS:
+        return None
     return f"{owner}/{name}"
 
 
@@ -98,4 +106,6 @@ _SHA = re.compile(r"[0-9a-f]{7,40}")
 
 
 def looks_like_sha(value: str) -> bool:
-    return bool(_SHA.fullmatch(value.lower()))
+    v = value.lower()
+    # A date-like version such as 20231215 is all digits; a real abbreviated sha almost never is.
+    return bool(_SHA.fullmatch(v)) and (len(v) == 40 or any(c in "abcdef" for c in v))

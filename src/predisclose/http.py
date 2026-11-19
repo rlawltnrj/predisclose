@@ -9,7 +9,7 @@ import sqlite3
 import time
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urljoin, urlparse
 
 import httpx
 
@@ -68,7 +68,7 @@ class Http:
             )
         self._client = httpx.Client(
             timeout=20.0,
-            follow_redirects=True,
+            follow_redirects=False,  # redirects are followed by hand: same host, https only, logged
             headers={"User-Agent": f"predisclose/{__version__}"},
             transport=transport,
         )
@@ -114,17 +114,8 @@ class Http:
             status, text = cached
             return status, self._decode(text, as_json)
 
-        headers: dict[str, str] = {}
+        response = self._send(method, url, params=params, body=body)
         is_github_api = url.startswith("https://api.github.com/")
-        if is_github_api:
-            headers["Accept"] = "application/vnd.github+json"
-            headers["X-GitHub-Api-Version"] = "2022-11-28"
-            if self.token:
-                headers["Authorization"] = f"Bearer {self.token}"
-        try:
-            response = self._client.request(method, url, params=params, json=body, headers=headers)
-        except httpx.HTTPError as exc:
-            raise NetworkError(f"{method} {url}: {exc}") from exc
 
         if is_github_api and response.status_code in (403, 429):
             remaining = response.headers.get("x-ratelimit-remaining")
@@ -143,6 +134,36 @@ class Http:
         if response.status_code in (200, 404):
             self._cache_put(key, response.status_code, text)
         return response.status_code, self._decode(text, as_json)
+
+    def _send(
+        self, method: str, url: str, *, params: dict[str, Any] | None, body: dict[str, Any] | None
+    ) -> httpx.Response:
+        """Send one request. Redirects are followed only to the same host over https, at most 5."""
+        origin = urlparse(url).hostname
+        current, current_params = url, params
+        for _ in range(6):
+            headers: dict[str, str] = {}
+            if current.startswith("https://api.github.com/"):
+                headers["Accept"] = "application/vnd.github+json"
+                headers["X-GitHub-Api-Version"] = "2022-11-28"
+                if self.token:
+                    headers["Authorization"] = f"Bearer {self.token}"
+            try:
+                response = self._client.request(
+                    method, current, params=current_params, json=body, headers=headers
+                )
+            except (httpx.HTTPError, httpx.InvalidURL, ValueError) as exc:
+                raise NetworkError(f"{method} {current}: {exc}") from exc
+            if not response.is_redirect:
+                return response
+            target = urljoin(str(response.url), response.headers.get("location", ""))
+            parsed = urlparse(target)
+            if parsed.scheme != "https" or parsed.hostname != origin or parsed.username or parsed.password:
+                self.queries.append(f"  (redirect to {target} not followed: different host or not https)")
+                return response
+            self.queries.append(f"  -> {method} {target}")
+            current, current_params = target, None
+        raise NetworkError(f"{method} {url}: too many redirects")
 
     @staticmethod
     def _decode(text: str, as_json: bool) -> Any:

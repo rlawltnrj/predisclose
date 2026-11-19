@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import ipaddress
 import re
+import socket
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
@@ -63,6 +65,13 @@ class Channel:
 KIND_ORDER = {"github": 0, "platform": 1, "email": 2, "link": 3}
 
 
+def _host(url: str) -> str:
+    try:
+        return urlparse(url).netloc.lower()
+    except ValueError:
+        return ""
+
+
 def find_policy(http: Http, repo: str) -> tuple[str, str] | None:
     """SECURITY.md in the repository, else the organization's .github repository."""
     for path in POLICY_PATHS:
@@ -108,8 +117,8 @@ def parse_policy(text: str, repo: str, pvr: bool | None) -> list[Channel]:
         if GITHUB_REPORTING.search(line):
             add("github", pvr_url, 4 if pvr else 1, pos, line)
         for label, url in MD_LINK.findall(line):
-            host = urlparse(url).netloc.lower()
-            if any(h in host or h in url.lower() for h in IGNORED_URL_HOSTS):
+            host = _host(url)
+            if not host or any(h in host or h in url.lower() for h in IGNORED_URL_HOSTS):
                 continue
             platform = next((name for key, name in PLATFORMS.items() if key in host), None)
             if platform:
@@ -126,8 +135,8 @@ def parse_policy(text: str, repo: str, pvr: bool | None) -> list[Channel]:
                 add("link", url, base, pos, line)
         for url in BARE_URL.findall(line):
             url = url.rstrip(".,;:")
-            host = urlparse(url).netloc.lower()
-            if any(h in host for h in IGNORED_URL_HOSTS):
+            host = _host(url)
+            if not host or any(h in host for h in IGNORED_URL_HOSTS):
                 continue
             platform = next((name for key, name in PLATFORMS.items() if key in host), None)
             if platform:
@@ -155,11 +164,42 @@ def parse_policy(text: str, repo: str, pvr: bool | None) -> list[Channel]:
     return ranked
 
 
-def security_txt_contacts(http: Http, homepage: str) -> tuple[str, list[str]] | None:
-    parsed = urlparse(homepage)
-    if parsed.scheme not in ("http", "https") or not parsed.netloc or "github.com" in parsed.netloc:
+def public_host(homepage: str) -> str | None:
+    """
+    The host of a project homepage, only if it is safe to contact: a public DNS name that does not
+    resolve to a private, loopback, link-local or otherwise internal address. The homepage is set by
+    the repository owner, so it must never make this tool reach into the user's own network.
+    """
+    try:
+        parsed = urlparse(homepage.strip())
+        host = (parsed.hostname or "").rstrip(".").lower()
+    except ValueError:
         return None
-    url = f"https://{parsed.netloc}/.well-known/security.txt"
+    if parsed.scheme not in ("http", "https") or not host or "." not in host:
+        return None
+    if host == "github.com" or host.endswith((".github.com", ".localhost", ".local", ".internal", ".lan", ".home")):
+        return None
+    try:
+        ipaddress.ip_address(host)
+        return None  # a bare IP address is never a project homepage worth trusting
+    except ValueError:
+        pass
+    try:
+        infos = socket.getaddrinfo(host, 443, proto=socket.IPPROTO_TCP)
+    except (OSError, UnicodeError):
+        return None
+    for info in infos:
+        address = ipaddress.ip_address(info[4][0])
+        if not address.is_global:
+            return None
+    return host
+
+
+def security_txt_contacts(http: Http, homepage: str) -> tuple[str, list[str]] | None:
+    host = public_host(homepage)
+    if host is None:
+        return None
+    url = f"https://{host}/.well-known/security.txt"
     status, text = http.get_text(url)
     if status != 200 or not text or "contact:" not in text.lower():
         return None
@@ -168,7 +208,7 @@ def security_txt_contacts(http: Http, homepage: str) -> tuple[str, list[str]] | 
         for line in text.splitlines()
         if line.lower().startswith("contact:")
     ]
-    return (url, contacts) if contacts else None
+    return (url, contacts[:5]) if contacts else None
 
 
 def check(http: Http, repo: str | None) -> CheckResult:

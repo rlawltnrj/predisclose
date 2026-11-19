@@ -71,7 +71,15 @@ mentioned".
 
 ## Requests and caching
 
-Every request is recorded and shown with `--show-queries`. `--dry-run` shows the first requests
-and sends nothing. Answers with status 200 or 404 are cached for six hours in
-`~/.cache/predisclose/http.sqlite`. A GitHub token, if set, is sent only to `api.github.com` and
-never appears in the request log or the cache key.
+Every request is recorded and shown with `--show-queries`, including each redirect hop.
+`--dry-run` shows the first requests and sends nothing. Redirects are followed only to the same
+host over https. Answers with status 200 are cached for six hours and "not found" answers for 30
+minutes in `~/.cache/predisclose/http.sqlite`. A GitHub token, if set, is sent only to
+`api.github.com` and never appears in the request log or the cache key.
+
+## Untrusted text
+
+Advisory titles, commit messages, release notes and security policies are written by other
+people. Before anything is shown, control characters (including terminal escape sequences) are
+removed, Rich markup is escaped, and Markdown output escapes table and link syntax. Links are
+only rendered for plain `http(s)` URLs.

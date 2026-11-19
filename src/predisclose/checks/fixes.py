@@ -7,7 +7,7 @@ import re
 
 from predisclose.checks.similarity import score
 from predisclose.http import Http
-from predisclose.models import LEVELS, CheckResult, Evidence, Finding, max_level
+from predisclose.models import LEVELS, CheckResult, Evidence, Finding, max_level, plural
 from predisclose.sources import github
 from predisclose.sources.advisory import Advisory
 
@@ -176,14 +176,16 @@ def check(http: Http, finding: Finding, advisories: list[Advisory] | None = None
                 notes=notes,
             )
         summary = (
-            f"{len(evidence)} commits changed {', '.join(finding.files)} since {ref} ({since[:10]}); "
-            f"{flagged} look security-related"
+            f"{plural(len(evidence), 'commit')} changed {', '.join(finding.files)} since {ref} ({since[:10]}); "
+            f"{flagged} {'looks' if flagged == 1 else 'look'} security-related"
             + (f" ({linked_count} linked to public advisories)" if linked_count else "")
         )
     else:
+        own_tags = {ref, finding.version, f"v{finding.version}"}
         for rel in github.releases(http, finding.repo):
             published = str(rel.get("published_at") or "")
-            if not published or published <= since:
+            tag = str(rel.get("tag_name") or "")
+            if not published or published <= since or tag in own_tags:
                 continue
             body = f"{rel.get('name') or ''}\n{rel.get('body') or ''}"
             hit = SECURITY_TERMS.search(body)
@@ -209,7 +211,10 @@ def check(http: Http, finding: Finding, advisories: list[Advisory] | None = None
                 f"No release since {ref} ({since[:10]}) mentions security terms.",
                 notes=notes,
             )
-        summary = f"{len(evidence)} releases since {ref} ({since[:10]}) mention security terms"
+        summary = (
+            f"{plural(len(evidence), 'release')} since {ref} ({since[:10]}) "
+            f"{'mentions' if len(evidence) == 1 else 'mention'} security terms"
+        )
 
     evidence.sort(key=lambda e: (LEVELS.index(e.level), e.date or ""), reverse=True)
     return CheckResult(NAME, "found", max_level([e.level for e in evidence]), summary, evidence, notes)

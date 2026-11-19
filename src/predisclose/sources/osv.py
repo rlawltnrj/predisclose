@@ -16,7 +16,11 @@ def query_package(
     body: dict[str, Any] = {"package": {"name": name, "ecosystem": ecosystem}}
     if version:
         body["version"] = version
-    return [to_advisory(v) for v in _paged(http, body)]
+    advisories = [to_advisory(v) for v in _paged(http, body)]
+    if not version:
+        for adv in advisories:
+            adv.version_checked = False
+    return advisories
 
 
 def query_commit(http: Http, sha: str) -> list[Advisory]:
@@ -46,14 +50,17 @@ def to_advisory(v: dict[str, Any]) -> Advisory:
     cwes = {str(c).upper() for c in (db.get("cwe_ids") or [])}
     functions: set[str] = set()
     for affected in v.get("affected") or []:
+        if not isinstance(affected, dict):
+            continue
         eco_specific = affected.get("ecosystem_specific") or {}
         for imp in eco_specific.get("imports") or []:  # Go vulndb style
-            functions.update(str(s) for s in imp.get("symbols") or [])
+            if isinstance(imp, dict):
+                functions.update(str(s) for s in imp.get("symbols") or [] if s)
         functions.update(str(s) for s in eco_specific.get("affected_functions") or [])
     fix_refs = [
-        r.get("url", "")
+        str(r.get("url") or "")
         for r in v.get("references") or []
-        if r.get("type") == "FIX" or "/commit/" in str(r.get("url", ""))
+        if isinstance(r, dict) and (r.get("type") == "FIX" or "/commit/" in str(r.get("url") or ""))
     ]
     return Advisory(
         id=vid,

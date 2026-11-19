@@ -5,7 +5,7 @@ from __future__ import annotations
 from predisclose.checks.similarity import score
 from predisclose.ecosystems import GHSA_ECOSYSTEM
 from predisclose.http import Http
-from predisclose.models import LEVELS, CheckResult, Evidence, Finding, max_level
+from predisclose.models import LEVELS, CheckResult, Evidence, Finding, max_level, plural
 from predisclose.sources import ghsa, github, osv
 from predisclose.sources.advisory import Advisory, merge
 
@@ -67,9 +67,10 @@ def check(http: Http, finding: Finding, advisories: list[Advisory], notes: list[
         )
     strong = sum(e.level == "strong" for e in evidence)
     medium = sum(e.level == "medium" for e in evidence)
-    summary = f"{len(evidence)} public advisories affect {finding.target()}"
+    summary = f"{plural(len(evidence), 'public advisory', 'public advisories')} affect"
+    summary += f"{'s' if len(evidence) == 1 else ''} {finding.target()}"
     if finding.cwe or finding.files or finding.functions or finding.keywords:
-        summary += f"; {strong} strong and {medium} medium matches"
+        summary += f"; {strong} strong and {medium} medium {'match' if strong + medium == 1 else 'matches'}"
         if strong:
             summary += " - likely already known"
     else:

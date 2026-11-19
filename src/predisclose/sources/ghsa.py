@@ -40,7 +40,7 @@ def to_advisory(a: dict[str, Any], *, version_checked: bool) -> Advisory:
     if a.get("cve_id"):
         aliases.add(str(a["cve_id"]))
     for ident in a.get("identifiers") or []:
-        value = ident.get("value")
+        value = ident.get("value") if isinstance(ident, dict) else None
         if value:
             aliases.add(str(value))
     aliases.discard(ghsa_id)
@@ -55,7 +55,8 @@ def to_advisory(a: dict[str, Any], *, version_checked: bool) -> Advisory:
 
     functions: set[str] = set()
     for vuln in a.get("vulnerabilities") or []:
-        functions.update(str(f) for f in vuln.get("vulnerable_functions") or [])
+        if isinstance(vuln, dict):
+            functions.update(str(f) for f in vuln.get("vulnerable_functions") or [] if f)
 
     refs = [str(r) if not isinstance(r, dict) else str(r.get("url") or "") for r in a.get("references") or []]
     fix_refs = [r for r in refs if "/commit/" in r]

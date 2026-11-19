@@ -36,17 +36,33 @@ class Advisory:
 
 
 def merge(advisories: list[Advisory]) -> list[Advisory]:
-    """Combine records that describe the same advisory (shared id or alias)."""
-    merged: list[Advisory] = []
-    index: dict[str, Advisory] = {}
-    for adv in advisories:
-        target = next((index[i] for i in adv.all_ids() if i in index), None)
-        if target is None:
-            merged.append(adv)
-            for i in adv.all_ids():
-                index[i] = adv
-            continue
-        target.aliases |= adv.all_ids() - {target.id}
+    """Combine records that describe the same advisory: any chain of shared ids or aliases."""
+    parent = list(range(len(advisories)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    owner: dict[str, int] = {}
+    for i, adv in enumerate(advisories):
+        for ident in adv.all_ids():
+            if ident in owner:
+                parent[find(i)] = find(owner[ident])
+            else:
+                owner[ident] = i
+
+    groups: dict[int, list[Advisory]] = {}
+    for i, adv in enumerate(advisories):
+        groups.setdefault(find(i), []).append(adv)
+    return [_combine(group) for group in groups.values()]
+
+
+def _combine(group: list[Advisory]) -> Advisory:
+    target = group[0]
+    for adv in group[1:]:
+        target.aliases |= adv.all_ids()
         target.cwes |= adv.cwes
         target.functions |= adv.functions
         target.sources |= adv.sources
@@ -64,6 +80,5 @@ def merge(advisories: list[Advisory]) -> list[Advisory]:
         if adv.url.startswith("https://github.com/advisories/"):
             target.url = adv.url
         target.version_checked = target.version_checked or adv.version_checked
-        for i in adv.all_ids():
-            index[i] = target
-    return merged
+    target.aliases.discard(target.id)
+    return target

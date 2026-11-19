@@ -131,3 +131,97 @@ def test_not_found_answers_expire_sooner(tmp_path, monkeypatch):
     h.get_text("https://raw.githubusercontent.com/a/b/HEAD/SECURITY.md")
     assert len(calls) == 2  # 404 expired, 200s would still be cached
     h.close()
+
+
+def _not_found(request):
+    url = str(request.url)
+    if url.startswith("https://pypi.org/pypi/"):
+        return httpx.Response(404, json={"message": "Not Found"})
+    if url.startswith("https://api.github.com/repos/"):
+        return httpx.Response(404, json={"message": "Not Found"})
+    return handler(request)
+
+
+def test_misspelled_package_is_an_error_not_a_clean_result():
+    http = Http(use_cache=False, transport=httpx.MockTransport(_not_found))
+    report = run_check(http, Finding(ecosystem="PyPI", package="widgte", version="1.0.0"))
+    assert all(r.status == "error" for r in report.results)
+    assert "Check the spelling" in report.results[0].summary
+
+
+def test_missing_repository_is_reported():
+    http = Http(use_cache=False, transport=httpx.MockTransport(_not_found))
+    report = run_check(http, Finding(repo="nobody/nothing", version="1.0"))
+    assert all(r.status == "error" for r in report.results)
+    assert "not found" in report.results[0].summary
+
+
+def test_homepage_redirect_to_internal_host_is_not_followed():
+    from predisclose.checks import route
+
+    seen = []
+
+    def evil(request):
+        seen.append(str(request.url))
+        if str(request.url) == "https://curl.se/.well-known/security.txt":
+            return httpx.Response(302, headers={"location": "http://169.254.169.254/latest/meta-data/"})
+        return httpx.Response(200, text="Contact: x@y.z")
+
+    http = Http(use_cache=False, transport=httpx.MockTransport(evil))
+    assert route.security_txt_contacts(http, "https://curl.se") is None
+    assert seen == ["https://curl.se/.well-known/security.txt"]
+    assert any("not followed" in q for q in http.queries)
+
+
+def test_internal_homepages_are_never_contacted():
+    from predisclose.checks.route import public_host
+
+    for home in ["http://127.0.0.1:8080", "http://user:pw@127.0.0.1", "http://169.254.169.254",
+                 "http://localhost", "https://printer.local", "https://[::1]/", "https://["]:
+        assert public_host(home) is None, home
+
+
+def test_terminal_output_strips_control_characters():
+    from io import StringIO
+
+    from rich.console import Console
+
+    from predisclose.models import CheckResult, Evidence, Report
+    from predisclose.output import to_terminal
+
+    bad = "title\x1b[2J\x1b[H [bold]x[/] \x07"
+    report = Report("0", "now", Finding(repo="a/b"), [CheckResult("public_record", "found", "weak", bad,
+                    [Evidence("osv", "ID\x1b]0;pwn\x07", bad, "https://x.example/a b")])], [])
+    buf = StringIO()
+    to_terminal(report, Console(file=buf, force_terminal=False, width=200))
+    out = buf.getvalue()
+    assert "\x1b" not in out and "\x07" not in out
+
+
+def test_malformed_public_data_does_not_crash_the_run():
+    def weird(request):
+        url = str(request.url)
+        if url.startswith("https://api.github.com/advisories"):
+            return httpx.Response(200, json=[{"ghsa_id": "GHSA-x", "identifiers": [None], "cwes": [None],
+                                               "vulnerabilities": [None], "references": [None]}])
+        if url.startswith("https://raw.githubusercontent.com/acme/widget/HEAD/SECURITY.md"):
+            return httpx.Response(200, text="Report to https://[ or [here](https://[)")
+        return handler(request)
+
+    http = Http(use_cache=False, transport=httpx.MockTransport(weird))
+    report = run_check(http, Finding(ecosystem="PyPI", package="widget", version="1.0.0"))
+    assert len(report.results) == 4
+    assert {r.check for r in report.results} == {"public_record", "public_fix", "recent_activity", "where_to_report"}
+
+
+def test_tested_versions_own_release_is_not_a_later_fix():
+    def rel(request):
+        url = str(request.url)
+        if url.startswith(f"https://api.github.com/repos/{REPO}/releases"):
+            return httpx.Response(200, json=[{"tag_name": "1.0.0", "name": "1.0.0", "body": "Security fixes",
+                                               "published_at": "2026-01-01T02:00:00Z", "html_url": "x"}])
+        return handler(request)
+
+    http = Http(use_cache=False, transport=httpx.MockTransport(rel))
+    report = run_check(http, Finding(repo=REPO, version="1.0.0"), ("fixes",))
+    assert report.results[0].status == "none"

@@ -68,9 +68,22 @@ def test_score_function_from_structured_data():
     assert any("function" in r for r in reasons)
 
 
-def test_short_basename_does_not_match():
-    adv = _adv(summary="The a.c helper and util tools")
-    assert score(adv, Finding(files=["src/a.c"]))[0] == "weak"
+def test_names_match_whole_tokens_only():
+    # Regression: substring matching rated these "strong - likely already known".
+    adv = _adv(summary="overflow in radio.c path handling", cwes={"CWE-22"})
+    assert score(adv, Finding(cwe=["CWE-22"], files=["io.c"]))[0] == "medium"  # CWE only
+    adv = _adv(summary="race in thread pool, already fixed", cwes={"CWE-362"})
+    assert score(adv, Finding(cwe=["CWE-362"], functions=["read"]))[0] == "medium"
+    adv = _adv(summary="bug in lib/io.c when calling `read()`", cwes={"CWE-22"})
+    assert score(adv, Finding(cwe=["CWE-22"], files=["io.c"]))[0] == "strong"
+    assert score(adv, Finding(functions=["read"], files=["io.c"]))[0] == "strong"
+
+
+def test_short_function_name_needs_code_form():
+    adv = _adv(summary="attackers can read arbitrary files")
+    assert score(adv, Finding(functions=["read"]))[0] == "weak"
+    adv = _adv(summary="calling read( with a large size overflows")
+    assert score(adv, Finding(functions=["read"]))[0] == "medium"
 
 
 def test_unversioned_advisory_is_capped():
@@ -89,3 +102,40 @@ def test_merge_by_alias():
     assert merged[0].display_id() == "GHSA-aaaa-bbbb-cccc"
     assert merged[0].cwes == {"CWE-79"}
     assert merged[0].sources == {"osv", "ghsa"}
+
+
+def test_merge_is_transitive():
+    a = _adv(id="PYSEC-1", aliases={"CVE-1"})
+    b = _adv(id="GHSA-1", aliases={"OSV-9"})
+    c = _adv(id="CVE-1", aliases={"GHSA-1"})
+    merged = merge([a, b, c])
+    assert len(merged) == 1
+    assert merged[0].all_ids() == {"PYSEC-1", "CVE-1", "GHSA-1", "OSV-9"}
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "https://github.com/sponsors/alice",
+        "https://gist.github.com/alice/abc123",
+        "https://github.com/orgs/acme/projects",
+        "https://notgithub.com/a/b",
+    ],
+)
+def test_parse_repo_rejects_non_repositories(text):
+    assert parse_repo(text) is None
+
+
+def test_date_like_version_is_not_a_sha():
+    from predisclose.ecosystems import looks_like_sha
+
+    assert not looks_like_sha("20231215")
+    assert looks_like_sha("6de60977acd7")
+    assert looks_like_sha("a" * 40)
+
+
+def test_pypi_source_url_beats_funding_url():
+    from predisclose.sources.registry import _ranked_project_urls
+
+    urls = _ranked_project_urls({"Funding": "https://github.com/sponsors/alice", "Source": "https://github.com/acme/widget"})
+    assert urls[0] == "https://github.com/acme/widget"

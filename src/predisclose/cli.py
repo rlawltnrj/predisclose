@@ -17,6 +17,7 @@ from predisclose.ecosystems import normalize_cwe, parse_package, parse_repo
 from predisclose.http import Http, github_token_from_env
 from predisclose.models import Finding
 from predisclose.output import to_json, to_markdown, to_terminal
+from predisclose.text import one_line
 
 app = typer.Typer(
     add_completion=False,
@@ -224,12 +225,15 @@ def ledger_list(
     lg = _ledger()
     rows = lg.all(status)
     lg.close()
-    table = Table("#", "Project", "Title", "Channel", "Sent", "Deadline", "Status", "IDs", "Public")
+    table = Table()
+    for name, wrap in (("#", False), ("Project", True), ("Title", True), ("Channel", False), ("Sent", False),
+                       ("Deadline", False), ("Status", False), ("IDs", True), ("Public", False)):
+        table.add_column(name, no_wrap=not wrap, overflow="fold")
+    from rich.markup import escape
+
     for r in rows:
-        table.add_row(
-            str(r["id"]), r["project"], r["title"], r["channel"], r["sent_on"], r["deadline"],
-            r["status"], r["ids"], "yes" if r["public"] else "no",
-        )
+        cells = [r["id"], r["project"], r["title"], r["channel"], r["sent_on"], r["deadline"], r["status"], r["ids"]]
+        table.add_row(*(escape(one_line(c)) for c in cells), "yes" if r["public"] else "no")
     out.print(table)
 
 
@@ -245,7 +249,8 @@ def ledger_due(
         out.print(f"Nothing due in the next {within} days.")
         return
     for r in rows:
-        out.print(f"#{r['id']}  {r['deadline']}  {r['status']:<12} {r['project']}  {r['title']}")
+        line = f"#{r['id']}  {r['deadline']}  {r['status']:<12} {r['project']}  {r['title']}"
+        out.print(one_line(line), markup=False, highlight=False)
 
 
 @ledger_app.command("export")

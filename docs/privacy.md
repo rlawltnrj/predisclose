@@ -8,9 +8,16 @@ does not leak one.
 | Sent | To |
 |---|---|
 | ecosystem, package name, version | OSV, GitHub Advisory Database, the package registry |
+| commit sha of the tested version (repository-only checks) | OSV |
 | repository name, version or commit, file paths you passed | GitHub API |
 | repository name | raw.githubusercontent.com (to read `SECURITY.md`) |
-| project homepage host | that host (to read `/.well-known/security.txt`) |
+| project homepage host name | your DNS resolver, then that host (to read `/.well-known/security.txt`) |
+
+The homepage is chosen by the repository owner, so predisclose only contacts it when it is a
+public host name: bare IP addresses, `localhost`, `.local`-style names and names that resolve to
+private, loopback or link-local addresses are skipped, and any user name, password or port in the
+homepage URL is dropped. Redirects are followed only to the same host over https; every hop is
+shown by `--show-queries`, and a redirect that is not followed is shown too.
 
 CWE ids, function names and keywords are **not** sent: matching happens locally, after the public
 records are downloaded. The `notes` field of a finding file is never read by any check.

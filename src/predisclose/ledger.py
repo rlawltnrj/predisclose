@@ -73,8 +73,12 @@ class Ledger:
     ) -> int:
         _check_status(status)
         today = today or date.today()
-        sent = sent_on or today.isoformat()
-        deadline = (date.fromisoformat(sent) + timedelta(days=deadline_days)).isoformat()
+        try:
+            sent_date = date.fromisoformat(sent_on) if sent_on else today
+        except ValueError as exc:
+            raise ValueError(f"sent date must be YYYY-MM-DD, got {sent_on!r}") from exc
+        sent = sent_date.isoformat()
+        deadline = (sent_date + timedelta(days=deadline_days)).isoformat()
         cur = self.db.execute(
             "INSERT INTO reports (project, title, channel, sent_on, deadline, status, ids, url, "
             "public, notes, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -150,6 +154,8 @@ def redact(rows: list[dict[str, Any]], *, show_projects: bool = False) -> list[d
 
 
 def export(rows: list[dict[str, Any]], fmt: str = "md", *, show_projects: bool = False) -> str:
+    from predisclose.text import md_text, md_url
+
     safe = redact(rows, show_projects=show_projects)
     if fmt == "json":
         return json.dumps(safe, indent=2, ensure_ascii=False)
@@ -163,8 +169,10 @@ def export(rows: list[dict[str, Any]], fmt: str = "md", *, show_projects: bool =
         "|---|---|---|---|---|---|",
     ]
     for r in safe:
-        title = f"[{r['title']}]({r['url']})" if r["url"] else r["title"]
+        url = md_url(r["url"])
+        title = f"[{md_text(r['title'])}]({url})" if url else md_text(r["title"])
         lines.append(
-            f"| {r['id']} | {r['project']} | {title} | {r['status']} | {r['ids']} | {r['sent_on']} |"
+            f"| {r['id']} | {md_text(r['project'])} | {title} | {md_text(r['status'])} | "
+            f"{md_text(r['ids'])} | {md_text(r['sent_on'])} |"
         )
     return "\n".join(lines) + "\n"

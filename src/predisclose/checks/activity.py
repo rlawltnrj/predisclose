@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 from predisclose.checks.similarity import score
 from predisclose.http import Http
-from predisclose.models import CheckResult, Evidence, Finding
+from predisclose.models import CheckResult, Evidence, Finding, plural
 from predisclose.sources import ghsa, osv
 from predisclose.sources.advisory import Advisory, merge
 
@@ -54,10 +54,10 @@ def check(http: Http, finding: Finding, *, days: int = 365, now: datetime | None
         return CheckResult(
             NAME, "none", "none", f"No advisories published in the last {days} days."
         )
-    summary = f"{len(recent)} advisories published in the last {days} days"
+    summary = f"{plural(len(recent), 'advisory', 'advisories')} published in the last {days} days"
     notes: list[str] = []
     if similar:
-        summary += f"; {similar} look similar to your finding"
+        summary += f"; {similar} {'looks' if similar == 1 else 'look'} similar to your finding"
         notes.append(
             "Areas with recent similar advisories attract parallel reports. Check the "
             "public records carefully before writing your report."

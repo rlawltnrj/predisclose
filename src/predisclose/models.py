@@ -15,6 +15,10 @@ DISCLAIMER = (
 )
 
 
+def plural(n: int, word: str, many: str | None = None) -> str:
+    return f"{n} {word if n == 1 else (many or word + 's')}"
+
+
 def max_level(levels: list[str]) -> str:
     best = "none"
     for level in levels:
