@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+Fixes
+- A network error on the homepage's security.txt (for example a redirect loop) no longer turns
+  "Where to report" into an error when SECURITY.md or GitHub already names a channel; it becomes
+  a note. Found by the first weekly live check.
+
 Project
 - Weekly live check (`.github/workflows/live-check.yml`): runs `scripts/eval_recall.py` and the new
   `scripts/eval_routes.py` against public data and opens an issue when either fails. Both scripts

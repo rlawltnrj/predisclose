@@ -8,7 +8,7 @@ import socket
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
-from predisclose.http import Http
+from predisclose.http import Http, NetworkError
 from predisclose.models import CheckResult, Evidence
 from predisclose.sources import github
 
@@ -224,10 +224,16 @@ def check(http: Http, repo: str | None) -> CheckResult:
     pvr_url = f"https://github.com/{repo}/security/advisories/new"
     policy = find_policy(http, repo)
     homepage = str(info.get("homepage") or "")
-    sectxt = security_txt_contacts(http, homepage) if homepage else None
-
     evidence: list[Evidence] = []
     notes: list[str] = []
+
+    # security.txt is a fallback on a host the repository owner chose; a failure there (redirect
+    # loop, timeout) must not hide the answer from SECURITY.md or GitHub.
+    try:
+        sectxt = security_txt_contacts(http, homepage) if homepage else None
+    except NetworkError:
+        sectxt = None
+        notes.append("The project homepage's security.txt could not be read (network error).")
 
     if policy:
         url, text = policy

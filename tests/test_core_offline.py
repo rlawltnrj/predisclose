@@ -225,3 +225,30 @@ def test_tested_versions_own_release_is_not_a_later_fix():
     http = Http(use_cache=False, transport=httpx.MockTransport(rel))
     report = run_check(http, Finding(repo=REPO, version="1.0.0"), ("fixes",))
     assert report.results[0].status == "none"
+
+
+def test_security_txt_failure_does_not_hide_security_md(monkeypatch):
+    # Regression: a redirect loop on the homepage's security.txt turned the whole
+    # "where to report" answer into an error although SECURITY.md named a channel.
+    from predisclose.checks import route
+
+    monkeypatch.setattr(route, "public_host", lambda home: "docs.example.org")
+    policy = "# Security\n\nPlease use GitHub private vulnerability reporting.\n"
+
+    def loop(request):
+        url = str(request.url)
+        if url == "https://api.github.com/repos/acme/widget":
+            return httpx.Response(200, json={"homepage": "https://docs.example.org", "archived": False})
+        if url == "https://api.github.com/repos/acme/widget/private-vulnerability-reporting":
+            return httpx.Response(200, json={"enabled": True})
+        if url.startswith("https://raw.githubusercontent.com/acme/widget/") and url.endswith("/SECURITY.md"):
+            return httpx.Response(200, text=policy)
+        if url.startswith("https://docs.example.org/"):
+            return httpx.Response(302, headers={"location": url + "x"})
+        return httpx.Response(404, text="")
+
+    http = Http(use_cache=False, transport=httpx.MockTransport(loop))
+    result = route.check(http, "acme/widget")
+    assert result.status == "found", result.summary
+    assert "GitHub private vulnerability reporting" in result.summary
+    assert any("security.txt could not be read" in n for n in result.notes)
