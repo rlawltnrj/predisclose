@@ -5,6 +5,8 @@
 
 **Before you disclose a vulnerability, spend one minute checking what is already public.**
 
+![Terminal recording: predisclose checking jinja2 2.10 for a sandbox finding, showing public advisories, later fixes, and the reporting channel](https://raw.githubusercontent.com/rlawltnrj/predisclose/main/docs/demo.gif)
+
 `predisclose` looks at public data only and answers four questions about an open-source project:
 
 1. **Public record**: is there already a public advisory that looks like your finding? (OSV, GitHub Advisory Database)

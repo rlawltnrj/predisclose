@@ -76,4 +76,5 @@ def to_advisory(v: dict[str, Any]) -> Advisory:
         url=f"https://osv.dev/vulnerability/{vid}",
         sources={"osv"},
         fix_refs=[u for u in fix_refs if u],
+        withdrawn=bool(v.get("withdrawn")),
     )

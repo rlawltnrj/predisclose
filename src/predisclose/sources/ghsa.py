@@ -10,6 +10,7 @@ from predisclose.http import Http, NetworkError
 from predisclose.sources.advisory import Advisory
 
 API = "https://api.github.com"
+RETRACTED_TITLE = re.compile(r"\W*(withdrawn|rejected|retracted|invalid)\b", re.IGNORECASE)
 PAGE = 100  # one page; callers add a note when a list is this long
 
 
@@ -99,4 +100,7 @@ def to_advisory(a: dict[str, Any], *, version_checked: bool) -> Advisory:
         repo_hint=parse_repo(a.get("source_code_location") or "") if len({_family(p) for p in packages}) <= 1 else None,
         fix_refs=fix_refs,
         version_checked=version_checked,
+        # The global database sets withdrawn_at; a repository advisory that was retracted often
+        # stays "published" with a title such as "REJECTED (not a vulnerability): ...".
+        withdrawn=bool(a.get("withdrawn_at")) or bool(RETRACTED_TITLE.match(str(a.get("summary") or ""))),
     )

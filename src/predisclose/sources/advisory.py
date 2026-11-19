@@ -19,6 +19,7 @@ class Advisory:
     fix_refs: list[str] = field(default_factory=list)
     repo_hint: str | None = None
     version_checked: bool = True
+    withdrawn: bool = False
 
     def all_ids(self) -> set[str]:
         return {self.id, *self.aliases}
@@ -80,5 +81,6 @@ def _combine(group: list[Advisory]) -> Advisory:
         if adv.url.startswith("https://github.com/advisories/"):
             target.url = adv.url
         target.version_checked = target.version_checked or adv.version_checked
+        target.withdrawn = target.withdrawn or adv.withdrawn
     target.aliases.discard(target.id)
     return target

@@ -24,7 +24,7 @@ def check(http: Http, finding: Finding, *, days: int = 365, now: datetime | None
         advisories = osv.query_package(http, finding.ecosystem, finding.package)
     if finding.repo:
         advisories += ghsa.repo_advisories(http, finding.repo)
-    advisories = merge(advisories)
+    advisories = [a for a in merge(advisories) if not a.withdrawn]
 
     cutoff = ((now or datetime.now(UTC)) - timedelta(days=days)).strftime("%Y-%m-%d")
     recent = [a for a in advisories if (a.published or "")[:10] >= cutoff]

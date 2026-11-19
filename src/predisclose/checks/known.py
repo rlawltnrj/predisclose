@@ -78,9 +78,16 @@ def gather(http: Http, finding: Finding) -> tuple[list[Advisory], list[str]]:
         notes.append("Repository advisories are not filtered by version.")
     if failures and not found:
         raise NetworkError("; ".join(failures))
+    merged = merge(found)
+    withdrawn = [a for a in merged if a.withdrawn]
+    if withdrawn:
+        notes.append(
+            f"Left out {plural(len(withdrawn), 'withdrawn advisory', 'withdrawn advisories')}: "
+            + ", ".join(a.display_id() for a in withdrawn[:5])
+        )
     if failures:
         notes.insert(0, "Incomplete: " + "; ".join(failures) + ". Only the other source's advisories are shown.")
-    return merge(found), notes
+    return [a for a in merged if not a.withdrawn], notes
 
 
 def check(http: Http, finding: Finding, advisories: list[Advisory], notes: list[str]) -> CheckResult:

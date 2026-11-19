@@ -46,6 +46,9 @@ predisclose = "predisclose.cli:app"
 [tool.hatch.build.targets.wheel]
 packages = ["src/predisclose"]
 
+[tool.hatch.build.targets.sdist]
+exclude = ["docs/demo.gif"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

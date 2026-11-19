@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+Fixes
+- Withdrawn advisories are left out (with a note naming them), including repository advisories
+  that stay "published" with a title such as "REJECTED (not a vulnerability)". Previously a
+  withdrawn express advisory was listed as affecting 4.17.1 and counted as recent activity.
+
+Project
+- README: a short demo GIF of a real run (`docs/demo.gif`, made by `scripts/demo_gif.py`); the
+  GIF is left out of the source distribution.
+
 ## 0.1.2 (2026-11-19)
 
 Fixes from a full review (three independent passes: security, correctness, project setup)

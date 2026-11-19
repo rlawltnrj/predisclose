@@ -293,3 +293,52 @@ def test_version_range_is_not_used_as_a_starting_point_for_fixes():
     http = Http(use_cache=False, transport=httpx.MockTransport(lambda r: httpx.Response(500)))
     result = fixes.check(http, Finding(repo="expressjs/express", version="4.x"))
     assert result.status == "skipped" and "not an exact version" in result.summary
+
+
+# -- withdrawn advisories -------------------------------------------------------------
+
+
+def test_withdrawn_advisories_are_left_out_with_a_note():
+    def handler(request):
+        url = str(request.url)
+        if "osv.dev" in url:
+            return httpx.Response(200, json={"vulns": [
+                {"id": "GHSA-live-aaaa-bbbb", "summary": "real"},
+                {"id": "GHSA-gone-aaaa-bbbb", "summary": "gone", "withdrawn": "2025-12-02T00:00:00Z"},
+            ]})
+        return httpx.Response(200, json=[
+            {"ghsa_id": "GHSA-wdrn-aaaa-bbbb", "summary": "Withdrawn Advisory: x", "withdrawn_at": "2025-12-02"},
+        ])
+
+    http = Http(use_cache=False, transport=httpx.MockTransport(handler))
+    advs, notes = known.gather(http, Finding(ecosystem="npm", package="express", version="4.17.1"))
+    assert [a.id for a in advs] == ["GHSA-live-aaaa-bbbb"]
+    assert any("withdrawn" in n and "GHSA-gone-aaaa-bbbb" in n for n in notes)
+
+
+@pytest.mark.parametrize("summary,gone", [
+    ("REJECTED (not a vulnerability): improperly controlled modification", True),
+    ("[Withdrawn] duplicate of GHSA-xxxx", True),
+    ("Rejection sampling bug allows bias", False),
+    ("Invalidated session tokens are still accepted", False),
+])
+def test_retracted_repository_advisory_titles(summary, gone):
+    adv = ghsa.to_advisory({"ghsa_id": "GHSA-aaaa-bbbb-cccc", "summary": summary}, version_checked=False)
+    assert adv.withdrawn is gone
+
+
+def test_activity_ignores_withdrawn_advisories():
+    from datetime import UTC, datetime
+
+    from predisclose.checks import activity
+
+    def handler(request):
+        if "osv.dev" in str(request.url):
+            return httpx.Response(200, json={"vulns": []})
+        return httpx.Response(200, json=[{"ghsa_id": "GHSA-aaaa-bbbb-cccc", "published_at": "2026-10-01T00:00:00Z",
+                                          "summary": "REJECTED (not a vulnerability): x"}])
+
+    http = Http(use_cache=False, transport=httpx.MockTransport(handler))
+    result = activity.check(http, Finding(ecosystem="npm", package="express", repo="expressjs/express"),
+                            now=datetime(2026, 11, 19, tzinfo=UTC))
+    assert result.evidence == []
