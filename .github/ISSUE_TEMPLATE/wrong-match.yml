@@ -1,0 +1,46 @@
+name: Wrong match
+description: A public advisory was matched too strongly, too weakly, or was missed.
+labels: ["matching"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not write details of any undisclosed vulnerability here.** Issues are public.
+        Describe the case with the public advisory only. Leave out your own keywords, function
+        names and notes if they describe a finding that is not public yet.
+  - type: input
+    id: target
+    attributes:
+      label: Package or repository and version
+      placeholder: pypi:jinja2 2.10
+    validations:
+      required: true
+  - type: input
+    id: advisory
+    attributes:
+      label: Public advisory id
+      placeholder: GHSA-xxxx-xxxx-xxxx or CVE-YYYY-NNNN
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What went wrong
+      options:
+        - Listed, but should not be (version not affected, other package)
+        - Matched too strongly
+        - Matched too weakly
+        - Missing from the list
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: The command you ran (public options only) and the line predisclose printed.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: predisclose version
+      placeholder: "0.1.1 (see: pip show predisclose)"

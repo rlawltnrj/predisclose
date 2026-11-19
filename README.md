@@ -1,5 +1,8 @@
 # predisclose
 
+[![ci](https://github.com/rlawltnrj/predisclose/actions/workflows/ci.yml/badge.svg)](https://github.com/rlawltnrj/predisclose/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/rlawltnrj/predisclose/badge)](https://scorecard.dev/viewer/?uri=github.com/rlawltnrj/predisclose)
+
 **Before you disclose a vulnerability, spend one minute checking what is already public.**
 
 `predisclose` looks at public data only and answers four questions about an open-source project:
@@ -116,7 +119,11 @@ range with the advisory's CWE, and the first patched version as a control.
 
 The reporting-channel parser was checked by hand against the policies of curl, express, hyper,
 Jinja, Django, Node.js, OpenSSL, Go, Rails and Next.js (all ten match), and its test suite holds
-our own examples of each layout it has to handle.
+our own examples of each layout it has to handle. `scripts/eval_routes.py` repeats that check.
+
+Both scripts run every week in the
+[live-check workflow](https://github.com/rlawltnrj/predisclose/actions/workflows/live-check.yml),
+which opens an issue when a result changes.
 
 ## For AI agents
 

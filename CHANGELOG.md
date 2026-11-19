@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+Project
+- Weekly live check (`.github/workflows/live-check.yml`): runs `scripts/eval_recall.py` and the new
+  `scripts/eval_routes.py` against public data and opens an issue when either fails. Both scripts
+  now exit non-zero on a miss.
+- Dependabot for GitHub Actions and pip, OpenSSF Scorecard, and issue templates for a wrong
+  reporting channel, a wrong match, and bugs.
+
 ## 0.1.1 (2026-11-19)
 
 Fixes from a full review (five passes, including an independent one).

@@ -7,6 +7,8 @@ For each sampled reviewed GitHub advisory:
   * the first patched version must not list it at all (control).
 
 Usage:  GITHUB_TOKEN=... python scripts/eval_recall.py [per_ecosystem]
+
+Exits 1 if any case misses, leaks, or no cases could be sampled.
 """
 
 from __future__ import annotations
@@ -96,7 +98,7 @@ def sample(http: Http, ecosystem: str, n: int) -> list[dict]:
     return out
 
 
-def main() -> None:
+def main() -> int:
     per = int(sys.argv[1]) if len(sys.argv) > 1 else 3
     http = Http(token=github_token_from_env())
     hits = total = control_ok = 0
@@ -128,7 +130,8 @@ def main() -> None:
             )
     http.close()
     print(f"\nrecall {hits}/{total}   control {control_ok}/{total}")
+    return 0 if total and hits == total and control_ok == total else 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

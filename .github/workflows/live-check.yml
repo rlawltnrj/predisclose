@@ -1,0 +1,81 @@
+name: live-check
+
+# Weekly run against real public data: recall/control on sampled advisories and the reporting
+# channel of ten known projects. Opens (or comments on) an issue when either fails.
+on:
+  schedule:
+    - cron: "17 3 * * 1"  # Mondays 03:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-check
+  cancel-in-progress: false
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -e .
+      - name: Recall and control
+        id: recall
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/eval_recall.py 5 2>&1 | tee recall.txt; exit "${PIPESTATUS[0]}"
+      - name: Reporting channels
+        id: routes
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/eval_routes.py 2>&1 | tee routes.txt; exit "${PIPESTATUS[0]}"
+      - name: Fail the run if a check failed
+        if: steps.recall.outcome != 'success' || steps.routes.outcome != 'success'
+        run: exit 1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        if: always()
+        with:
+          name: live-check
+          path: "*.txt"
+
+  report:
+    needs: live
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: live-check
+      - name: Open or update the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo "The weekly live check failed: $RUN_URL"
+            for f in recall.txt routes.txt; do
+              [ -f "$f" ] || continue
+              printf '\n<details><summary>%s</summary>\n\n```text\n' "$f"
+              tail -n 80 "$f"
+              printf '```\n</details>\n'
+            done
+          } > body.md
+          title="Weekly live check failed"
+          num=$(gh issue list --state open --search "in:title \"$title\"" --json number --jq '.[0].number')
+          if [ -n "$num" ]; then
+            gh issue comment "$num" --body-file body.md
+          else
+            gh issue create --title "$title" --body-file body.md
+          fi

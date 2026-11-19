@@ -1,0 +1,22 @@
+# Weekly grouped updates. Actions stay pinned to full commit SHAs; Dependabot updates the SHA and
+# the version comment together.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    # pyproject.toml holds lower bounds, which the lowest-deps CI job keeps honest. Only touch a
+    # range when a new release falls outside it; never raise a floor automatically.
+    versioning-strategy: increase-if-necessary
+    groups:
+      python:
+        patterns: ["*"]
