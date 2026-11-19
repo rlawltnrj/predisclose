@@ -92,7 +92,8 @@ def run_check(http: Http, finding: Finding, checks: Iterable[str] = ALL_CHECKS) 
             message = str(exc) if isinstance(exc, (RateLimited, NetworkError)) else (
                 f"Unexpected data ({type(exc).__name__}): {exc}"
             )
-            results.append(CheckResult(known.NAME, "error", "none", message))
+            if "known" in wanted:
+                results.append(CheckResult(known.NAME, "error", "none", message))
             wanted = [c for c in wanted if c != "known"]
 
     if not finding.repo:

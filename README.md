@@ -45,8 +45,6 @@ followed, and the reporting channel came from the organization-wide policy in `p
 
 ```bash
 pipx install predisclose      # or: uv tool install predisclose
-# before the first PyPI release:
-pipx install git+https://github.com/rlawltnrj/predisclose
 ```
 
 Python 3.11 or newer. A GitHub token is optional but recommended: unauthenticated GitHub API calls are limited to 60 per hour.

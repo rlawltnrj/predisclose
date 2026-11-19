@@ -172,12 +172,18 @@ class Http:
                 raise NetworkError(f"{method} {current}: {exc}") from exc
             if not response.is_redirect:
                 return response
-            target = urljoin(str(response.url), response.headers.get("location", ""))
-            parsed = urlparse(target)
+            location = response.headers.get("location", "")
+            try:
+                target = urljoin(str(response.url), location)
+                parsed = urlparse(target)
+                port = parsed.port  # raises ValueError for an out-of-range or malformed port
+            except ValueError:
+                self.queries.append(f"  (redirect to {location} not followed: malformed address)")
+                return response
             if (
                 parsed.scheme != "https"
                 or parsed.hostname != origin
-                or parsed.port not in (None, 443)
+                or port not in (None, 443)
                 or parsed.username
                 or parsed.password
             ):

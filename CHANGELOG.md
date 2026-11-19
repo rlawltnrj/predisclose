@@ -1,20 +1,23 @@
 # Changelog
 
-## Unreleased
+## 0.1.2 (2026-11-19)
 
 Fixes from a full review (three independent passes: security, correctness, project setup)
 
 Correctness
 - A failed OSV or GitHub Advisory Database answer (HTTP 5xx, a broken page) no longer reads as
-  "No public advisory found": the other source's results are shown with an "Incomplete" note, and
-  if neither answered the check is an error.
+  "No public advisory found": the other source's results are shown and the summary says the list
+  is incomplete; if neither answered the check is an error.
 - The repository is no longer guessed from an advisory that covers packages of different projects
   (for example `golang.org/x/crypto` was mapped to `warp-tech/russh`). Conflicting guesses ask for `--repo`;
   `golang.org/x/NAME` maps to `golang/NAME`.
 - A version range or word (`4.x`, `latest`) is not sent as a version, so unrelated advisories are
   no longer labelled "affects this version".
 - In SECURITY.md, headings such as "Report a Vulnerability" and phrases such as "do not use GitHub
-  security advisories" no longer make GitHub the preferred channel.
+  security advisories", "instead of GitHub security advisories" or "advisories are not monitored"
+  no longer make GitHub the preferred channel.
+- A version range is no longer used as the starting point of the public-fix check.
+- A check you did not ask for no longer appears as an error.
 - Wrong types in a `--from` TOML file (`version = 2.10`, `files = "a.py"`) are rejected or
   corrected instead of being misread; numeric CWE ids (`cwe = [79]`) are accepted.
 - Go pseudo-versions resolve to their commit.
@@ -25,7 +28,8 @@ Security and privacy
 - Brackets, quotes and backslashes in advisory URLs are percent-encoded; such a URL could crash
   the terminal output or show a misleading link.
 - Bidirectional control characters are stripped, and the `--show-queries` log is cleaned.
-- Redirects are followed only on the default https port.
+- Redirects are followed only on the default https port; a malformed redirect address is not
+  followed (instead of failing the reporting-channel check).
 - The cache and the ledger are created readable only by you; cached answers fetched with a token
   are kept apart from anonymous ones.
 - `docs/privacy.md` now lists the package name in GitHub tag lookups and says that a token ties
@@ -38,6 +42,7 @@ Other fixes
   a note. Found by the first weekly live check.
 
 Project
+- README: removed the pre-PyPI install line.
 - Weekly live check (`.github/workflows/live-check.yml`): runs `scripts/eval_recall.py` and the new
   `scripts/eval_routes.py` against public data and opens an issue when either fails. Both scripts
   now exit non-zero on a miss, and retry once before calling a network error a failure.

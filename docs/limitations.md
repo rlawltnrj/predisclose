@@ -15,8 +15,12 @@ Read these before trusting a result.
    found only when an advisory names them.
 6. **GitHub only, for repository data.** Projects hosted elsewhere still get the public record
    check through their package, but not the fix or reporting-channel checks.
-7. **SECURITY.md parsing is heuristic.** It handles the common layouts well, but always open the
-   policy and read it. When a project has no `SECURITY.md`, its website may state a different
+   When the registry does not name a repository, it is guessed from advisories, which can be
+   wrong (packages of one family, such as `node-fetch` and `node-forge`, look alike) or missing
+   (an advisory spanning `System.*` and `Microsoft.*` NuGet packages). The output says where the
+   repository came from; pass `--repo` when it is wrong or missing.
+7. **SECURITY.md parsing is heuristic.** It handles the common layouts and common ways of saying
+   "do not use X", but not every phrasing. Always open the policy and read it. When a project has no `SECURITY.md`, its website may state a different
    preference than the one shown.
 8. **Rate limits.** Without a token, GitHub allows 60 API requests per hour. One full check uses
    about 10 of them (more with several `--file` paths). Set `GITHUB_TOKEN`.

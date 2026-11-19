@@ -217,3 +217,79 @@ def test_numeric_cwe_in_finding_file(tmp_path):
     path = tmp_path / "f.toml"
     path.write_text('package = "pypi:jinja2"\nversion = "2.10"\ncwe = [79]\n')
     assert _load_finding_file(path)["cwe"] == ["79"]
+
+
+# -- pre-release review of 0.1.2 -----------------------------------------------------
+
+
+@pytest.mark.parametrize("location", ["https://acme.example:99999/x", "https://[bad/x"])
+def test_malformed_redirect_does_not_hide_security_md(monkeypatch, location):
+    from predisclose.checks import route
+
+    monkeypatch.setattr(route, "public_host", lambda home: "acme.example")
+
+    def handler(request):
+        url = str(request.url)
+        if url == "https://api.github.com/repos/acme/widget":
+            return httpx.Response(200, json={"homepage": "https://acme.example", "archived": False})
+        if url.endswith("/private-vulnerability-reporting"):
+            return httpx.Response(200, json={"enabled": False})
+        if url.startswith("https://raw.githubusercontent.com/acme/widget/") and url.endswith("/SECURITY.md"):
+            return httpx.Response(200, text="Please report vulnerabilities to security@acme.org\n")
+        if url.startswith("https://acme.example/"):
+            return httpx.Response(302, headers={"location": location})
+        return httpx.Response(404, text="")
+
+    http = Http(use_cache=False, transport=httpx.MockTransport(handler))
+    result = route.check(http, "acme/widget")
+    assert result.status == "found"
+    assert "security@acme.org" in result.summary
+    assert any("malformed" in q for q in http.queries)
+
+
+def test_partial_result_says_incomplete_in_the_summary():
+    def handler(request):
+        if "osv.dev" in str(request.url):
+            return httpx.Response(200, json={"vulns": [{"id": "GHSA-aaaa-bbbb-cccc", "summary": "x"}]})
+        return httpx.Response(502, json={})
+
+    http = Http(use_cache=False, transport=httpx.MockTransport(handler))
+    f = Finding(ecosystem="npm", package="express", version="4.17.1")
+    advs, notes = known.gather(http, f)
+    assert "incomplete" in known.check(http, f, advs, notes).summary
+
+
+@pytest.mark.parametrize("text", [
+    "Please do **not** report through GitHub security advisories. Email security@acme.org.",
+    "Email security@acme.org instead of using GitHub security advisories.",
+    "Email security@acme.org rather than GitHub security advisories.",
+    "No GitHub security advisories please. Email security@acme.org.",
+    "GitHub security advisories are not monitored. Email security@acme.org.",
+    "Do not use https://github.com/a/b/security/advisories/new - email security@acme.org.",
+])
+def test_more_negated_github_phrasings(text):
+    got = parse_policy(text, "a/b", True)
+    assert got[0].kind == "email"
+    assert not any(c.kind == "github" or "advisories" in c.value for c in got)
+
+
+def test_unrequested_public_record_error_is_not_shown():
+    def handler(request):
+        url = str(request.url)
+        if url.startswith("https://pypi.org/"):
+            return httpx.Response(200, json={"info": {"project_urls": {}}})
+        if "osv.dev" in url or url.startswith("https://api.github.com/advisories"):
+            return httpx.Response(503, json={})
+        return httpx.Response(404, json={})
+
+    http = Http(use_cache=False, transport=httpx.MockTransport(handler))
+    report = run_check(http, Finding(ecosystem="PyPI", package="jinja2", version="2.10"), ("activity",))
+    assert [r.check for r in report.results] == ["recent_activity"]
+
+
+def test_version_range_is_not_used_as_a_starting_point_for_fixes():
+    from predisclose.checks import fixes
+
+    http = Http(use_cache=False, transport=httpx.MockTransport(lambda r: httpx.Response(500)))
+    result = fixes.check(http, Finding(repo="expressjs/express", version="4.x"))
+    assert result.status == "skipped" and "not an exact version" in result.summary

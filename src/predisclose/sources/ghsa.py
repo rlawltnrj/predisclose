@@ -24,7 +24,7 @@ def query_affects(
     if http.dry_run:
         return []
     if status != 200 or not isinstance(data, list):
-        raise NetworkError(f"GitHub Advisory Database query failed (HTTP {status}); results would be incomplete")
+        raise NetworkError(f"GitHub Advisory Database query failed (HTTP {status})")
     return [to_advisory(a, version_checked=bool(version)) for a in data]
 
 

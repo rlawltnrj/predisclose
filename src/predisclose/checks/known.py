@@ -127,6 +127,8 @@ def check(http: Http, finding: Finding, advisories: list[Advisory], notes: list[
             summary += " - likely already known"
     else:
         summary += "; add --cwe/--file/--function to rank them"
+    if any(n.startswith("Incomplete:") for n in notes):
+        summary += " (incomplete: one advisory source failed, see notes)"
     return CheckResult(
         NAME, "found", max_level([e.level for e in evidence]), summary, evidence, notes
     )

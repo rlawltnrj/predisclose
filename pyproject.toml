@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "predisclose"
-version = "0.1.1"
+version = "0.1.2"
 description = "Before you disclose a vulnerability: check public records, public fixes, and the project's official reporting channel."
 readme = "README.md"
 license = "Apache-2.0"

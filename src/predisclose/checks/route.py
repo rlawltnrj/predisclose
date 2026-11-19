@@ -88,33 +88,46 @@ def find_policy(http: Http, repo: str) -> tuple[str, str] | None:
     return None
 
 
-NEGATION = re.compile(r"\b(do not|don't|dont|never|avoid)\b(?!\s+hesitate)", re.IGNORECASE)
-# What ends the reach of a "do not": punctuation, a dash, or a conjunction starting a new instruction.
-CLAUSE_BREAK = re.compile(r"[.,;:!?]|\s[-\u2013\u2014]+\s|\b(instead|but|rather|and)\b", re.IGNORECASE)
+# Words that say *not* to use what follows, and what ends their reach (punctuation, a dash, or a
+# conjunction starting a new instruction; "instead" alone starts one, "instead of" negates).
+NEGATION = re.compile(
+    r"\b(do\s+not|don't|dont|never|avoid|instead\s+of|rather\s+than)\b(?!\s+hesitate)|^\s*no\b",
+    re.IGNORECASE,
+)
+CLAUSE_BREAK = re.compile(
+    r"[.,;:!?]|\s[-\u2013\u2014]+\s|\b(?:but|and)\b|\binstead\b(?!\s+of)|\brather\b(?!\s+than)",
+    re.IGNORECASE,
+)
+# "GitHub security advisories are not monitored"
+NEGATED_AFTER = re.compile(r"\W*(?:is|are)\s+not\s+(?:monitored|used|accepted|checked|read)\b", re.IGNORECASE)
 URL_ANYWHERE = re.compile(r"https?://\S+")
 GENERIC_PHRASE = "report a vulnerability"  # names a topic; alone it does not mean GitHub
 
 
-def _without_urls(line: str) -> str:
-    """The line with each URL blanked out (same length), so its dots and colons don't split clauses."""
-    return URL_ANYWHERE.sub(lambda m: " " * len(m.group(0)), line)
+def _plain(line: str) -> str:
+    """The line with URLs blanked and emphasis marks removed, keeping every position unchanged,
+    so a URL's dots don't split clauses and "do **not**" still reads as "do not"."""
+    text = URL_ANYWHERE.sub(lambda m: " " * len(m.group(0)), line)
+    return text.replace("*", " ").replace("_", " ")
 
 
-def _negated_at(line: str, at: int) -> bool:
-    """True when the clause leading up to position `at` says not to do it ("do not use GitHub ...")."""
-    clause = CLAUSE_BREAK.split(_without_urls(line)[:at])[-1]
-    return bool(NEGATION.search(clause or ""))
+def _negated_at(line: str, start: int, end: int | None = None) -> bool:
+    """True when the policy says not to use the thing at line[start:end]."""
+    text = _plain(line)
+    clause = CLAUSE_BREAK.split(text[:start])[-1]
+    if NEGATION.search(clause):
+        return True
+    return end is not None and bool(NEGATED_AFTER.match(text[end:]))
 
 
 def _asks_for_github(line: str, *, heading: bool = False) -> bool:
-    text = _without_urls(line)
-    for m in GITHUB_REPORTING.finditer(text):
+    for m in GITHUB_REPORTING.finditer(_plain(line)):
         if heading and m.group(0).lower() == GENERIC_PHRASE:
             continue
-        if not _negated_at(line, m.start()):
+        if not _negated_at(line, m.start(), m.end()):
             return True
     return any(
-        "/security/advisories" in u.group(0) and not _negated_at(line, u.start())
+        "/security/advisories" in u.group(0) and not _negated_at(line, u.start(), u.end())
         for u in URL_ANYWHERE.finditer(line)
     )
 
@@ -155,7 +168,7 @@ def parse_policy(text: str, repo: str, pvr: bool | None) -> list[Channel]:
             add("github", pvr_url, 4 if pvr else 1, pos, line)
         for m in MD_LINK.finditer(line):
             label, url = m.group(1), m.group(2)
-            if _negated_at(line, m.start()):
+            if _negated_at(line, m.start(), m.end()):
                 continue  # "do not use [this](...)"
             host = _host(url)
             if not host or any(h in host or h in url.lower() for h in IGNORED_URL_HOSTS):
@@ -173,8 +186,10 @@ def parse_policy(text: str, repo: str, pvr: bool | None) -> list[Channel]:
                 else:
                     base = 2 if relevant_line else 0
                 add("link", url, base, pos, line)
-        for url in BARE_URL.findall(line):
-            url = url.rstrip(".,;:")
+        for bare in BARE_URL.finditer(line):
+            if _negated_at(line, bare.start(), bare.end()):
+                continue
+            url = bare.group(0).rstrip(".,;:")
             host = _host(url)
             if not host or any(h in host for h in IGNORED_URL_HOSTS):
                 continue

@@ -5,7 +5,9 @@ from __future__ import annotations
 import posixpath
 import re
 
+from predisclose.checks.known import is_exact_version
 from predisclose.checks.similarity import score
+from predisclose.ecosystems import looks_like_sha
 from predisclose.http import Http
 from predisclose.models import LEVELS, CheckResult, Evidence, Finding, max_level, plural
 from predisclose.sources import github
@@ -113,6 +115,14 @@ def check(http: Http, finding: Finding, advisories: list[Advisory] | None = None
     if not finding.version:
         return CheckResult(NAME, "skipped", "none", "Need --version to know where to start.")
 
+    if not is_exact_version(finding.version) and not looks_like_sha(finding.version):
+        return CheckResult(
+            NAME,
+            "skipped",
+            "none",
+            f"{finding.version!r} is not an exact version; pass the tag or commit you tested.",
+            notes=[ALWAYS],
+        )
     resolved = github.resolve_version(http, finding.repo, finding.version, finding.package)
     if not resolved:
         return CheckResult(

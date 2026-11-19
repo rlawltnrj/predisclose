@@ -39,7 +39,7 @@ def _paged(http: Http, body: dict[str, Any], max_pages: int = 5) -> list[dict[st
             break
         # A failed answer must not read as "no advisories": that is the worst false negative.
         if status != 200 or not isinstance(data, dict):
-            raise NetworkError(f"OSV query failed (HTTP {status}); results would be incomplete")
+            raise NetworkError(f"OSV query failed (HTTP {status})")
         out.extend(data.get("vulns") or [])
         token = data.get("next_page_token")
         if not token:
