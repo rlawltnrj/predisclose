@@ -11,7 +11,8 @@ advisories, and where does the project want reports. It also keeps a local ledge
 - `src/predisclose/checks/`: the four checks (`known`, `fixes`, `activity`, `route`) and `similarity`
 - `src/predisclose/core.py`: runs the checks; `cli.py`: Typer commands; `output.py` + `text.py`: rendering
 - `src/predisclose/http.py`: the only HTTP client (query log, cache, token handling, redirects)
-- `tests/`: offline tests with `httpx.MockTransport`; `scripts/eval_recall.py`: live evaluation
+- `tests/`: offline tests with `httpx.MockTransport`; `scripts/eval_recall.py` and
+  `scripts/eval_routes.py`: live evaluation (also run weekly by `.github/workflows/live-check.yml`)
 
 ## Commands
 
@@ -19,6 +20,7 @@ advisories, and where does the project want reports. It also keeps a local ledge
 uv venv && uv pip install -e ".[dev]"
 .venv/bin/ruff check . && .venv/bin/pytest -q
 GITHUB_TOKEN=$(gh auth token) .venv/bin/python scripts/eval_recall.py 5   # live, ~3 min
+GITHUB_TOKEN=$(gh auth token) .venv/bin/python scripts/eval_routes.py     # live, 10 projects
 ```
 
 ## Rules the code keeps (do not break these)

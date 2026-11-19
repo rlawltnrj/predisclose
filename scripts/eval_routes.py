@@ -1,8 +1,8 @@
 """
 Live check of the reporting-channel answer for ten well-known projects.
 
-Each project's expected channel was checked by hand against its own policy. A failure means
-either our parsing regressed or the project changed its policy; both need a look.
+Each project's expected channel was checked by hand against its own policy. A failure (after one
+retry) means either our parsing regressed or the project changed its policy; both need a look.
 
 Usage:  GITHUB_TOKEN=... python scripts/eval_routes.py
 """
@@ -35,9 +35,12 @@ def main() -> int:
     ok = 0
     try:
         for repo, want in EXPECTED.items():
-            report = run_check(http, Finding(repo=repo), ("route",))
-            result = report.results[0]
-            good = result.status == "found" and want in result.summary
+            # One retry absorbs a transient network error; a real regression fails both times.
+            for _ in range(2):
+                result = run_check(http, Finding(repo=repo), ("route",)).results[0]
+                good = result.status == "found" and want in result.summary
+                if good:
+                    break
             ok += good
             print(f"{repo:<20} {'ok  ' if good else 'FAIL'} {result.summary}")
             if not good:

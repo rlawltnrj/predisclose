@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from predisclose.ecosystems import parse_repo
-from predisclose.http import Http
+from predisclose.http import Http, NetworkError
 from predisclose.sources.advisory import Advisory
 
 API = "https://api.github.com"
+PAGE = 100  # one page; callers add a note when a list is this long
 
 
 def query_affects(
@@ -17,21 +19,36 @@ def query_affects(
     affects = f"{name}@{version}" if version else name
     status, data = http.get_json(
         f"{API}/advisories",
-        params={"ecosystem": ghsa_ecosystem, "affects": affects, "per_page": 100},
+        params={"ecosystem": ghsa_ecosystem, "affects": affects, "per_page": PAGE},
     )
-    if status != 200 or not isinstance(data, list):
+    if http.dry_run:
         return []
+    if status != 200 or not isinstance(data, list):
+        raise NetworkError(f"GitHub Advisory Database query failed (HTTP {status}); results would be incomplete")
     return [to_advisory(a, version_checked=bool(version)) for a in data]
 
 
 def repo_advisories(http: Http, repo: str) -> list[Advisory]:
     """Published advisories of one repository. These are not filtered by version."""
     status, data = http.get_json(
-        f"{API}/repos/{repo}/security-advisories", params={"state": "published", "per_page": 100}
+        f"{API}/repos/{repo}/security-advisories", params={"state": "published", "per_page": PAGE}
     )
-    if status != 200 or not isinstance(data, list):
+    if http.dry_run or status == 404:
         return []
+    if status != 200 or not isinstance(data, list):
+        raise NetworkError(f"GitHub repository advisories query failed (HTTP {status})")
     return [to_advisory(a, version_checked=False) for a in data]
+
+
+def _family(name: str) -> str:
+    """Which project a package name belongs to, roughly: Maven group, npm scope, module host/owner."""
+    if ":" in name:
+        return name.split(":", 1)[0]
+    if name.startswith("@") and "/" in name:
+        return name.split("/", 1)[0]
+    if "/" in name:
+        return "/".join(name.split("/")[:2])
+    return re.split(r"[._-]", name, maxsplit=1)[0]
 
 
 def to_advisory(a: dict[str, Any], *, version_checked: bool) -> Advisory:
@@ -58,6 +75,11 @@ def to_advisory(a: dict[str, Any], *, version_checked: bool) -> Advisory:
         if isinstance(vuln, dict):
             functions.update(str(f) for f in vuln.get("vulnerable_functions") or [] if f)
 
+    packages = {
+        str(v["package"].get("name") or "").lower()
+        for v in a.get("vulnerabilities") or []
+        if isinstance(v, dict) and isinstance(v.get("package"), dict)
+    }
     refs = [str(r) if not isinstance(r, dict) else str(r.get("url") or "") for r in a.get("references") or []]
     fix_refs = [r for r in refs if "/commit/" in r]
 
@@ -71,7 +93,10 @@ def to_advisory(a: dict[str, Any], *, version_checked: bool) -> Advisory:
         functions=functions,
         url=str(a.get("html_url") or f"https://github.com/advisories/{ghsa_id}"),
         sources={"ghsa"},
-        repo_hint=parse_repo(a.get("source_code_location") or ""),
+        # An advisory covering packages of different projects (e.g. a protocol flaw) names one
+        # project's source; it says nothing reliable about the others. Several artifacts of one
+        # project (same Maven group, npm scope, module host/owner) are fine.
+        repo_hint=parse_repo(a.get("source_code_location") or "") if len({_family(p) for p in packages}) <= 1 else None,
         fix_refs=fix_refs,
         version_checked=version_checked,
     )

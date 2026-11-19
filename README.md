@@ -123,7 +123,7 @@ our own examples of each layout it has to handle. `scripts/eval_routes.py` repea
 
 Both scripts run every week in the
 [live-check workflow](https://github.com/rlawltnrj/predisclose/actions/workflows/live-check.yml),
-which opens an issue when a result changes.
+which opens an issue when either check fails.
 
 ## For AI agents
 

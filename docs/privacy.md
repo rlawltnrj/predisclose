@@ -7,9 +7,10 @@ does not leak one.
 
 | Sent | To |
 |---|---|
-| ecosystem, package name, version | OSV, GitHub Advisory Database, the package registry |
+| ecosystem, package name, version | OSV, GitHub Advisory Database |
+| ecosystem, package name | the package registry (to find the repository) |
 | commit sha of the tested version (repository-only checks) | OSV |
-| repository name, version or commit, file paths you passed | GitHub API |
+| repository name, version or commit, package name (in tag guesses such as `name-1.2.3`), file paths you passed | GitHub API |
 | repository name | raw.githubusercontent.com (to read `SECURITY.md`) |
 | project homepage host name | your DNS resolver, then that host (to read `/.well-known/security.txt`) |
 
@@ -18,6 +19,10 @@ public host name: bare IP addresses, `localhost`, `.local`-style names and names
 private, loopback or link-local addresses are skipped, and any user name, password or port in the
 homepage URL is dropped. Redirects are followed only to the same host over https; every hop is
 shown by `--show-queries`, and a redirect that is not followed is shown too.
+
+If you set `GITHUB_TOKEN`, GitHub sees which account made each GitHub API request above
+(repository, version, file paths). The token is sent only to `api.github.com`. Leave it unset if
+you do not want these lookups tied to your account; you will be limited to 60 requests an hour.
 
 CWE ids, function names and keywords are **not** sent: matching happens locally, after the public
 records are downloaded. The `notes` field of a finding file is never read by any check.
@@ -29,6 +34,7 @@ anything.
 
 - The HTTP cache: `~/.cache/predisclose/http.sqlite` (delete it at any time).
 - The ledger: `~/.local/share/predisclose/ledger.sqlite`.
+- Both are created readable only by you (directory 0700, file 0600).
 - Reports you write with `--markdown`.
 
 `ledger export` keeps full details only for reports you marked public (or set to `published`).

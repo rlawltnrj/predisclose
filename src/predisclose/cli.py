@@ -9,6 +9,7 @@ from typing import Annotated
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 from predisclose import __version__
 from predisclose import ledger as ledger_mod
@@ -49,7 +50,7 @@ def main(
 
 
 def _fail(message: str) -> None:
-    err.print(f"[red]error:[/] {message}")
+    err.print(f"[red]error:[/] {escape(message)}")
     raise typer.Exit(2)
 
 
@@ -63,6 +64,19 @@ def _load_finding_file(path: Path) -> dict:
     unknown = set(data) - allowed
     if unknown:
         _fail(f"unknown keys in {path}: {', '.join(sorted(unknown))}")
+    for key in ("package", "version", "repo", "notes"):
+        if key in data and not isinstance(data[key], str):
+            _fail(f"{key} in {path} must be a quoted string, e.g. {key} = \"...\"")
+    if isinstance(data.get("cwe"), int) or (
+        isinstance(data.get("cwe"), list) and all(isinstance(v, (int, str)) for v in data["cwe"])
+    ):
+        data["cwe"] = [str(v) for v in (data["cwe"] if isinstance(data["cwe"], list) else [data["cwe"]])]
+    for key in ("cwe", "files", "functions", "keywords"):
+        value = data.get(key)
+        if isinstance(value, str):
+            data[key] = [value]
+        elif value is not None and not (isinstance(value, list) and all(isinstance(v, str) for v in value)):
+            _fail(f"{key} in {path} must be a list of quoted strings, e.g. {key} = [\"...\"]")
     return data
 
 
@@ -138,11 +152,11 @@ def check(
         to_terminal(report, out)
     if markdown:
         markdown.write_text(to_markdown(report), encoding="utf-8")
-        err.print(f"[dim]Markdown report written to {markdown}[/]")
+        err.print(f"[dim]Markdown report written to {escape(str(markdown))}[/]")
     if show_queries or dry_run:
         err.print("\n[bold]Requests[/]" + (" (dry run: none were sent)" if dry_run else ""))
         for q in report.queries:
-            err.print(f"  {q}", markup=False, highlight=False)
+            err.print(f"  {one_line(q)}", markup=False, highlight=False)
 
 
 @app.command()

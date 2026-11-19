@@ -25,12 +25,14 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.13"
+      - run: touch recall.txt routes.txt  # so the report job has something to attach
       - run: python -m pip install -e .
       - name: Recall and control
         id: recall
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ github.token }}
+        # exit 1 = a miss or leak, 2 = only network errors that persisted after a retry
         run: python scripts/eval_recall.py 5 2>&1 | tee recall.txt; exit "${PIPESTATUS[0]}"
       - name: Reporting channels
         id: routes
@@ -68,14 +70,15 @@ jobs:
             for f in recall.txt routes.txt; do
               [ -f "$f" ] || continue
               printf '\n<details><summary>%s</summary>\n\n```text\n' "$f"
-              tail -n 80 "$f"
+              tail -n 80 "$f" | cut -c1-400
               printf '```\n</details>\n'
             done
           } > body.md
           title="Weekly live check failed"
-          num=$(gh issue list --state open --search "in:title \"$title\"" --json number --jq '.[0].number')
+          num=$(gh issue list --state open --label live-check --author "app/github-actions" \
+                  --json number --jq '.[0].number')
           if [ -n "$num" ]; then
             gh issue comment "$num" --body-file body.md
           else
-            gh issue create --title "$title" --body-file body.md
+            gh issue create --title "$title" --label live-check --body-file body.md
           fi

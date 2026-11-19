@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+from collections import Counter
 from collections.abc import Iterable
 from datetime import UTC, datetime
 
@@ -29,6 +31,27 @@ def _guard(name: str, fn) -> CheckResult:
         return CheckResult(name, "error", "none", f"Network error: {exc}")
     except Exception as exc:  # one strange public record must not stop the other checks
         return CheckResult(name, "error", "none", f"Unexpected data ({type(exc).__name__}): {exc}")
+
+
+def repo_from_advisories(finding: Finding, advisories: list) -> tuple[str | None, str | None]:
+    """
+    Guess the repository from advisory source links. Returns (repo, note).
+    Only a clear answer is used: a hint naming the package, or one that most advisories agree on.
+    """
+    pkg = (finding.package or "").lower()
+    if finding.ecosystem == "Go" and pkg.startswith("golang.org/x/"):
+        return "golang/" + pkg.split("/")[2], None
+    hints = [a.repo_hint for a in advisories if a.repo_hint]
+    if not hints:
+        return None, None
+    short = re.split(r"[/:]", pkg)[-1] if pkg else ""
+    named = [h for h in hints if short and h.lower().split("/", 1)[1] == short]
+    if named:
+        return Counter(named).most_common(1)[0][0], None
+    top, count = Counter(hints).most_common(1)[0]
+    if count == len(hints) or (count * 2 > len(hints) and count >= 2):
+        return top, None
+    return None, "Advisories point to different repositories; pass --repo to check fixes and the reporting channel."
 
 
 def run_check(http: Http, finding: Finding, checks: Iterable[str] = ALL_CHECKS) -> Report:
@@ -73,10 +96,12 @@ def run_check(http: Http, finding: Finding, checks: Iterable[str] = ALL_CHECKS) 
             wanted = [c for c in wanted if c != "known"]
 
     if not finding.repo:
-        hint = next((a.repo_hint for a in advisories if a.repo_hint), None)
+        hint, why = repo_from_advisories(finding, advisories)
         if hint:
             finding.repo = hint
-            repo_note = f"Repository {hint} taken from advisory data."
+            repo_note = f"Repository {hint} taken from advisory data; pass --repo if it is wrong."
+        elif why:
+            repo_note = why
 
     def blocked(name: str, needs_repo: bool) -> CheckResult | None:
         if package_problem:

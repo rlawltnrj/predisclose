@@ -22,6 +22,22 @@ class RateLimited(Exception):
     """GitHub refused the request because the hourly or per-minute quota is used up."""
 
 
+def private_file(path: Path) -> Path:
+    """Create the directory (0700) and an empty file (0600) if missing, so other local users
+    cannot read cached answers or the ledger. The file's permissions are tightened if it exists;
+    the directory's only if it is our own `predisclose` directory (never a folder the user named)."""
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    try:
+        if path.parent.name == "predisclose":
+            os.chmod(path.parent, 0o700)
+        fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+        os.close(fd)
+        os.chmod(path, 0o600)
+    except OSError:
+        pass  # e.g. a read-only or foreign-owned directory; sqlite will report real problems
+    return path
+
+
 class NetworkError(Exception):
     pass
 
@@ -60,8 +76,7 @@ class Http:
         self._db: sqlite3.Connection | None = None
         if use_cache and not dry_run:
             directory = cache_dir or default_cache_dir()
-            directory.mkdir(parents=True, exist_ok=True)
-            self._db = sqlite3.connect(directory / "http.sqlite")
+            self._db = sqlite3.connect(private_file(directory / "http.sqlite"))
             self._db.execute(
                 "CREATE TABLE IF NOT EXISTS cache "
                 "(k TEXT PRIMARY KEY, t REAL NOT NULL, status INTEGER NOT NULL, body TEXT NOT NULL)"
@@ -107,7 +122,8 @@ class Http:
             return 0, None
 
         key = hashlib.sha256(
-            json.dumps([method, url, params or {}, body], sort_keys=True).encode()
+            # An answer fetched with a token can differ from an anonymous one; keep them apart.
+            json.dumps([method, url, params or {}, body, bool(self.token)], sort_keys=True).encode()
         ).hexdigest()
         cached = self._cache_get(key)
         if cached is not None:
@@ -158,7 +174,13 @@ class Http:
                 return response
             target = urljoin(str(response.url), response.headers.get("location", ""))
             parsed = urlparse(target)
-            if parsed.scheme != "https" or parsed.hostname != origin or parsed.username or parsed.password:
+            if (
+                parsed.scheme != "https"
+                or parsed.hostname != origin
+                or parsed.port not in (None, 443)
+                or parsed.username
+                or parsed.password
+            ):
                 self.queries.append(f"  (redirect to {target} not followed: different host or not https)")
                 return response
             self.queries.append(f"  -> {method} {target}")

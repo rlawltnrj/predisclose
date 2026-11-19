@@ -8,7 +8,8 @@ For each sampled reviewed GitHub advisory:
 
 Usage:  GITHUB_TOKEN=... python scripts/eval_recall.py [per_ecosystem]
 
-Exits 1 if any case misses, leaks, or no cases could be sampled.
+Exits 1 if any case misses or leaks, or no cases could be sampled; 2 if the only problems were
+network errors that persisted after one retry.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ import sys
 
 from predisclose.checks import known
 from predisclose.ecosystems import GHSA_ECOSYSTEM
-from predisclose.http import Http, github_token_from_env
+from predisclose.http import Http, NetworkError, RateLimited, github_token_from_env
 from predisclose.models import LEVELS, Finding
 
 ECOSYSTEMS = ["PyPI", "npm", "crates.io", "Go", "Maven", "RubyGems", "Packagist"]
@@ -98,39 +99,60 @@ def sample(http: Http, ecosystem: str, n: int) -> list[dict]:
     return out
 
 
+def evaluate(http: Http, eco: str, case: dict) -> tuple[bool, bool]:
+    """(recall ok, control clean) for one sampled advisory."""
+    f = Finding(ecosystem=eco, package=case["name"], version=case["vuln"], cwe=[case["cwe"]])
+    advs, _ = known.gather(http, f)
+    result = known.check(http, f, advs, [])
+    level = next((e.level for e in result.evidence if e.id == case["id"] or case["id"] in e.reasons), None)
+    if level is None:
+        level = next(
+            (e.level for e, a in zip(result.evidence, advs, strict=False) if case["id"] in a.all_ids()),
+            None,
+        )
+    found = any(case["id"] in a.all_ids() for a in advs)
+    ok = found and level is not None and LEVELS.index(level) >= LEVELS.index("medium")
+
+    g = Finding(ecosystem=eco, package=case["name"], version=case["fixed"], cwe=[case["cwe"]])
+    advs_fixed, _ = known.gather(http, g)
+    clean = not any(case["id"] in a.all_ids() for a in advs_fixed)
+    return ok, clean
+
+
 def main() -> int:
     per = int(sys.argv[1]) if len(sys.argv) > 1 else 3
     http = Http(token=github_token_from_env())
-    hits = total = control_ok = 0
+    hits = total = control_ok = errors = failed_cases = 0
     for eco in ECOSYSTEMS:
-        for case in sample(http, eco, per):
+        try:
+            cases = sample(http, eco, per)
+        except (NetworkError, RateLimited) as exc:
+            print(f"{eco:<10} ERROR sampling: {exc}"[:300])
+            errors += 1
+            continue
+        for case in cases:
             total += 1
-            f = Finding(ecosystem=eco, package=case["name"], version=case["vuln"], cwe=[case["cwe"]])
-            advs, _ = known.gather(http, f)
-            result = known.check(http, f, advs, [])
-            level = next(
-                (e.level for e in result.evidence if e.id == case["id"] or case["id"] in e.reasons), None
-            )
-            if level is None:
-                level = next(
-                    (e.level for e, a in zip(result.evidence, advs, strict=False) if case["id"] in a.all_ids()),
-                    None,
-                )
-            found = any(case["id"] in a.all_ids() for a in advs)
-            ok = found and level is not None and LEVELS.index(level) >= LEVELS.index("medium")
+            label = f"{eco:<10} {case['id']}  {case['name'][:30]:<30} vuln={case['vuln']:<12}"
+            for attempt in (1, 2):
+                try:
+                    ok, clean = evaluate(http, eco, case)
+                    break
+                except (NetworkError, RateLimited) as exc:
+                    if attempt == 2:
+                        ok = clean = None
+                        print(f"{label} ERROR {exc}"[:300])
+            if ok is None:
+                errors += 1
+                failed_cases += 1
+                continue
             hits += ok
-
-            g = Finding(ecosystem=eco, package=case["name"], version=case["fixed"], cwe=[case["cwe"]])
-            advs_fixed, _ = known.gather(http, g)
-            clean = not any(case["id"] in a.all_ids() for a in advs_fixed)
             control_ok += clean
-            print(
-                f"{eco:<10} {case['id']}  {case['name'][:30]:<30} vuln={case['vuln']:<12} "
-                f"recall={'ok' if ok else 'MISS'}  control={'ok' if clean else 'LEAK'}"
-            )
+            print(f"{label} recall={'ok' if ok else 'MISS'}  control={'ok' if clean else 'LEAK'}")
     http.close()
-    print(f"\nrecall {hits}/{total}   control {control_ok}/{total}")
-    return 0 if total and hits == total and control_ok == total else 1
+    print(f"\nrecall {hits}/{total}   control {control_ok}/{total}   errors {errors}")
+    if not total or hits + failed_cases < total or control_ok + failed_cases < total:
+        return 1
+    return 2 if errors else 0
 
 
 if __name__ == "__main__":

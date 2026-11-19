@@ -14,6 +14,8 @@ from predisclose.sources import github
 
 NAME = "where_to_report"
 
+MAX_POLICY_CHARS = 200_000
+MAX_LINE_CHARS = 2_000
 POLICY_PATHS = ("SECURITY.md", ".github/SECURITY.md", "docs/SECURITY.md")
 EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
 MD_LINK = re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+)\)")
@@ -86,6 +88,37 @@ def find_policy(http: Http, repo: str) -> tuple[str, str] | None:
     return None
 
 
+NEGATION = re.compile(r"\b(do not|don't|dont|never|avoid)\b(?!\s+hesitate)", re.IGNORECASE)
+# What ends the reach of a "do not": punctuation, a dash, or a conjunction starting a new instruction.
+CLAUSE_BREAK = re.compile(r"[.,;:!?]|\s[-\u2013\u2014]+\s|\b(instead|but|rather|and)\b", re.IGNORECASE)
+URL_ANYWHERE = re.compile(r"https?://\S+")
+GENERIC_PHRASE = "report a vulnerability"  # names a topic; alone it does not mean GitHub
+
+
+def _without_urls(line: str) -> str:
+    """The line with each URL blanked out (same length), so its dots and colons don't split clauses."""
+    return URL_ANYWHERE.sub(lambda m: " " * len(m.group(0)), line)
+
+
+def _negated_at(line: str, at: int) -> bool:
+    """True when the clause leading up to position `at` says not to do it ("do not use GitHub ...")."""
+    clause = CLAUSE_BREAK.split(_without_urls(line)[:at])[-1]
+    return bool(NEGATION.search(clause or ""))
+
+
+def _asks_for_github(line: str, *, heading: bool = False) -> bool:
+    text = _without_urls(line)
+    for m in GITHUB_REPORTING.finditer(text):
+        if heading and m.group(0).lower() == GENERIC_PHRASE:
+            continue
+        if not _negated_at(line, m.start()):
+            return True
+    return any(
+        "/security/advisories" in u.group(0) and not _negated_at(line, u.start())
+        for u in URL_ANYWHERE.finditer(line)
+    )
+
+
 def parse_policy(text: str, repo: str, pvr: bool | None) -> list[Channel]:
     """
     Every reporting channel a SECURITY.md mentions, best first.
@@ -108,15 +141,22 @@ def parse_policy(text: str, repo: str, pvr: bool | None) -> list[Channel]:
         if key not in channels or channels[key].score < score:
             channels[key] = Channel(kind, value, score, pos, line.strip()[:160])
 
-    for pos, line in enumerate(text.splitlines()):
-        if line.lstrip().startswith("#"):
+    # Policies are written by the repository owner: bound the work so a crafted file (one huge
+    # line, megabytes of text) cannot stall the run.
+    for pos, line in enumerate(text[:MAX_POLICY_CHARS].splitlines()):
+        line = line[:MAX_LINE_CHARS]
+        is_heading = line.lstrip().startswith("#")
+        if is_heading:
             heading = line
         if NOT_A_CHANNEL.search(line):
             continue
         relevant_line = bool(REPORT_WORDS.search(line) or REPORT_WORDS.search(heading))
-        if GITHUB_REPORTING.search(line):
+        if _asks_for_github(line, heading=is_heading):
             add("github", pvr_url, 4 if pvr else 1, pos, line)
-        for label, url in MD_LINK.findall(line):
+        for m in MD_LINK.finditer(line):
+            label, url = m.group(1), m.group(2)
+            if _negated_at(line, m.start()):
+                continue  # "do not use [this](...)"
             host = _host(url)
             if not host or any(h in host or h in url.lower() for h in IGNORED_URL_HOSTS):
                 continue
@@ -149,7 +189,7 @@ def parse_policy(text: str, repo: str, pvr: bool | None) -> list[Channel]:
                 else:
                     base = 2 if relevant_line else 0
                 add("link", url, base, pos, line)
-        for email in EMAIL.findall(line):
+        for email in EMAIL.findall(line) if "@" in line else ():
             if any(email.lower().endswith(d) for d in IGNORED_EMAIL_DOMAINS):
                 continue
             local = email.split("@", 1)[0]

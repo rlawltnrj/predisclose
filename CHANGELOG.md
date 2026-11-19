@@ -2,7 +2,37 @@
 
 ## Unreleased
 
-Fixes
+Fixes from a full review (three independent passes: security, correctness, project setup)
+
+Correctness
+- A failed OSV or GitHub Advisory Database answer (HTTP 5xx, a broken page) no longer reads as
+  "No public advisory found": the other source's results are shown with an "Incomplete" note, and
+  if neither answered the check is an error.
+- The repository is no longer guessed from an advisory that covers packages of different projects
+  (for example `golang.org/x/crypto` was mapped to `warp-tech/russh`). Conflicting guesses ask for `--repo`;
+  `golang.org/x/NAME` maps to `golang/NAME`.
+- A version range or word (`4.x`, `latest`) is not sent as a version, so unrelated advisories are
+  no longer labelled "affects this version".
+- In SECURITY.md, headings such as "Report a Vulnerability" and phrases such as "do not use GitHub
+  security advisories" no longer make GitHub the preferred channel.
+- Wrong types in a `--from` TOML file (`version = 2.10`, `files = "a.py"`) are rejected or
+  corrected instead of being misread; numeric CWE ids (`cwe = [79]`) are accepted.
+- Go pseudo-versions resolve to their commit.
+- A note says when GitHub's limit of 100 advisories was reached.
+
+Security and privacy
+- A crafted SECURITY.md with a very long line can no longer stall the run.
+- Brackets, quotes and backslashes in advisory URLs are percent-encoded; such a URL could crash
+  the terminal output or show a misleading link.
+- Bidirectional control characters are stripped, and the `--show-queries` log is cleaned.
+- Redirects are followed only on the default https port.
+- The cache and the ledger are created readable only by you; cached answers fetched with a token
+  are kept apart from anonymous ones.
+- `docs/privacy.md` now lists the package name in GitHub tag lookups and says that a token ties
+  GitHub requests to your account.
+- Error messages no longer interpret your own input as Rich markup.
+
+Other fixes
 - A network error on the homepage's security.txt (for example a redirect loop) no longer turns
   "Where to report" into an error when SECURITY.md or GitHub already names a channel; it becomes
   a note. Found by the first weekly live check.
@@ -10,7 +40,7 @@ Fixes
 Project
 - Weekly live check (`.github/workflows/live-check.yml`): runs `scripts/eval_recall.py` and the new
   `scripts/eval_routes.py` against public data and opens an issue when either fails. Both scripts
-  now exit non-zero on a miss.
+  now exit non-zero on a miss, and retry once before calling a network error a failure.
 - Dependabot for GitHub Actions and pip, OpenSSF Scorecard, and issue templates for a wrong
   reporting channel, a wrong match, and bugs.
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from predisclose.http import Http
+from predisclose.http import Http, NetworkError
 from predisclose.sources.advisory import Advisory
 
 QUERY_URL = "https://api.osv.dev/v1/query"
@@ -35,8 +35,11 @@ def _paged(http: Http, body: dict[str, Any], max_pages: int = 5) -> list[dict[st
         if token:
             payload["page_token"] = token
         status, data = http.post_json(QUERY_URL, payload)
-        if status != 200 or not isinstance(data, dict):
+        if http.dry_run:
             break
+        # A failed answer must not read as "no advisories": that is the worst false negative.
+        if status != 200 or not isinstance(data, dict):
+            raise NetworkError(f"OSV query failed (HTTP {status}); results would be incomplete")
         out.extend(data.get("vulns") or [])
         token = data.get("next_page_token")
         if not token:

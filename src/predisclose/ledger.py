@@ -9,6 +9,8 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
+from predisclose.http import private_file
+
 STATUSES = (
     "draft",
     "sent",
@@ -32,8 +34,7 @@ def default_path() -> Path:
 class Ledger:
     def __init__(self, path: Path | None = None) -> None:
         self.path = path or default_path()
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(self.path)
+        self.db = sqlite3.connect(private_file(self.path))
         self.db.row_factory = sqlite3.Row
         self.db.execute(
             """CREATE TABLE IF NOT EXISTS reports (

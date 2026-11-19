@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 from urllib.parse import quote
 
@@ -30,12 +31,18 @@ def raw_file(http: Http, repo: str, path: str) -> str | None:
     return text if status == 200 and text else None
 
 
+GO_PSEUDO = re.compile(r"v\d+\.\d+\.\d+-(?:[0-9A-Za-z.]+\.)?(?:0\.)?\d{14}-([0-9a-f]{12})(?:\+incompatible)?")
+
+
 def resolve_version(
     http: Http, repo: str, version: str, package: str | None = None
 ) -> tuple[str, str, str] | None:
     """Turn a version (tag name guess) or a commit sha into (ref, sha, iso_date)."""
     candidates = [version]
-    if not looks_like_sha(version):
+    pseudo = GO_PSEUDO.fullmatch(version)
+    if pseudo:  # Go pseudo-version: vX.Y.Z-yyyymmddhhmmss-<12-char commit>
+        candidates.insert(0, pseudo.group(1))
+    elif not looks_like_sha(version):
         candidates.append(f"v{version}")
         if package:
             short = package.rsplit("/", 1)[-1].rsplit(":", 1)[-1]
