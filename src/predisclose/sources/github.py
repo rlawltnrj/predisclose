@@ -9,7 +9,7 @@ from typing import Any
 from urllib.parse import quote
 
 from predisclose.ecosystems import looks_like_sha
-from predisclose.http import Http
+from predisclose.http import Http, NetworkError, RateLimited
 
 API = "https://api.github.com"
 RAW = "https://raw.githubusercontent.com"
@@ -30,15 +30,19 @@ def private_reporting_enabled(http: Http, repo: str) -> bool | None:
 def raw_file(http: Http, repo: str, path: str) -> str | None:
     """
     Read a file from the default branch without spending API quota. raw.githubusercontent.com
-    sometimes refuses requests (HTTP 429 from shared CI addresses); only a 404 means the file is
-    missing, so any other failure is retried once through the contents API.
+    sometimes fails to serve a file that exists; only a 404 means the file is missing, so any
+    other answer is retried once through the contents API. That retry is best effort: a rate limit
+    or network error there must not discard the rest of the route answer.
     """
     status, text = http.get_text(f"{RAW}/{repo}/HEAD/{path}")
     if status == 200:
         return text or None
     if status == 404:
         return None
-    status, data = http.get_json(f"{API}/repos/{repo}/contents/{quote(path)}")
+    try:
+        status, data = http.get_json(f"{API}/repos/{repo}/contents/{quote(path)}")
+    except (RateLimited, NetworkError):
+        return None
     if status != 200 or not isinstance(data, dict) or data.get("encoding") != "base64":
         return None
     try:

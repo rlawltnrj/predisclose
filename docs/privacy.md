@@ -11,7 +11,7 @@ does not leak one.
 | ecosystem, package name | the package registry (to check it exists and find the repository) |
 | commit sha of the tested version (repository-only checks) | OSV |
 | repository name, version or commit, package name (in tag guesses such as `name-1.2.3`), file paths you passed | GitHub API |
-| repository name | raw.githubusercontent.com (to read `SECURITY.md`; if it refuses the request, the same file is read through the GitHub API) |
+| repository name | raw.githubusercontent.com (to read `SECURITY.md`; if it answers with anything other than the file or "not found", the same path is read through the GitHub API) |
 | project homepage host name | your DNS resolver, then that host (to read `/.well-known/security.txt`) |
 
 The homepage is chosen by the repository owner, so predisclose only contacts it when it is a

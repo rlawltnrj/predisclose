@@ -371,3 +371,26 @@ def test_missing_security_md_does_not_spend_api_quota():
     http = Http(use_cache=False, transport=httpx.MockTransport(_raw_refused_handler(seen, 404)))
     assert route.check(http, "acme/widget").status == "none"
     assert not any("/contents/" in u for u in seen)
+
+
+def test_rate_limit_on_the_security_md_retry_keeps_the_rest_of_the_answer():
+    # Review finding: the contents API retry raised RateLimited, which turned the whole
+    # "where to report" answer into an error although private reporting was known to be on.
+    from predisclose.checks import route
+
+    def h(request):
+        url = str(request.url)
+        if url == "https://api.github.com/repos/acme/widget":
+            return httpx.Response(200, json={"homepage": "", "archived": False})
+        if url == "https://api.github.com/repos/acme/widget/private-vulnerability-reporting":
+            return httpx.Response(200, json={"enabled": True})
+        if url.startswith("https://raw.githubusercontent.com/"):
+            return httpx.Response(429, text="")
+        if "/contents/" in url:
+            return httpx.Response(429, headers={"x-ratelimit-remaining": "0"}, text="rate limit")
+        return httpx.Response(404, text="")
+
+    http = Http(use_cache=False, transport=httpx.MockTransport(h))
+    result = route.check(http, "acme/widget")
+    assert result.status == "found", result.summary
+    assert "GitHub private vulnerability reporting" in result.summary

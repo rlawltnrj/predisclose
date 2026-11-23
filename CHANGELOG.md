@@ -1,11 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.1.4 (2026-11-23)
 
-- Where to report: a SECURITY.md that raw.githubusercontent.com refused to serve (for example
-  HTTP 429 from shared CI addresses) was treated as missing, so the answer silently fell back to
-  security.txt or "no channel". Any answer other than 200 or 404 is now retried once through the
-  GitHub contents API. Found by the weekly live check of 2026-11-23 (curl and openssl).
+- Where to report: a SECURITY.md that raw.githubusercontent.com failed to serve was treated as
+  missing, so the answer silently fell back to security.txt or "no channel". Any answer other
+  than 200 or 404 is now retried once through the GitHub contents API; a rate limit or network
+  error on that retry leaves the rest of the answer intact. Found by the weekly live check of
+  2026-11-23 (curl and openssl).
 - Live route check: curl is also correct when the answer is the HackerOne contact in curl.se's
   security.txt.
 
