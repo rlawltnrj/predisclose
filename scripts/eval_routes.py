@@ -15,9 +15,10 @@ from predisclose.core import run_check
 from predisclose.http import Http, github_token_from_env
 from predisclose.models import Finding
 
-# repository -> text the "Where to report" summary must contain
-EXPECTED = {
-    "curl/curl": "curl.se/dev/vuln-disclosure.html",
+# repository -> text the "Where to report" summary must contain (a tuple: any one of them)
+EXPECTED: dict[str, str | tuple[str, ...]] = {
+    # SECURITY.md links the disclosure policy; curl.se's security.txt names HackerOne.
+    "curl/curl": ("curl.se/dev/vuln-disclosure.html", "hackerone.com/curl"),
     "expressjs/express": "GitHub private vulnerability reporting",
     "hyperium/hyper": "GitHub private vulnerability reporting",
     "pallets/jinja": "GitHub private vulnerability reporting",
@@ -38,13 +39,14 @@ def main() -> int:
             # One retry absorbs a transient network error; a real regression fails both times.
             for _ in range(2):
                 result = run_check(http, Finding(repo=repo), ("route",)).results[0]
-                good = result.status == "found" and want in result.summary
+                wants = (want,) if isinstance(want, str) else want
+                good = result.status == "found" and any(w in result.summary for w in wants)
                 if good:
                     break
             ok += good
             print(f"{repo:<20} {'ok  ' if good else 'FAIL'} {result.summary}")
             if not good:
-                print(f"{'':<20}      expected to contain: {want}")
+                print(f"{'':<20}      expected to contain: {' or '.join(wants)}")
     finally:
         http.close()
     print(f"\nroutes {ok}/{len(EXPECTED)}")

@@ -327,3 +327,47 @@ def test_typo_does_not_get_an_inferred_repository():
     report = run_check(http, Finding(ecosystem="Go", package="github.com/klauspost/compresss", version="v1.0.0"))
     assert report.finding.repo is None
     assert all(r.status == "error" for r in report.results)
+
+
+def _raw_refused_handler(seen, raw_status):
+    import base64
+
+    policy = "# Security\n\nEmail security@acme.example to report a vulnerability.\n"
+
+    def h(request):
+        url = str(request.url)
+        seen.append(url)
+        if url == "https://api.github.com/repos/acme/widget":
+            return httpx.Response(200, json={"homepage": "", "archived": False})
+        if url == "https://api.github.com/repos/acme/widget/private-vulnerability-reporting":
+            return httpx.Response(200, json={"enabled": False})
+        if url == "https://raw.githubusercontent.com/acme/widget/HEAD/SECURITY.md":
+            return httpx.Response(raw_status, text="")
+        if url == "https://api.github.com/repos/acme/widget/contents/SECURITY.md":
+            return httpx.Response(200, json={"encoding": "base64",
+                                             "content": base64.b64encode(policy.encode()).decode()})
+        return httpx.Response(404, text="")
+    return h
+
+
+def test_security_md_is_read_through_the_api_when_raw_refuses():
+    # Regression (live check 2026-11-23): raw.githubusercontent.com answered CI runners with an
+    # error, and SECURITY.md was treated as missing (curl fell back to security.txt, openssl to
+    # "no channel").
+    from predisclose.checks import route
+
+    seen = []
+    http = Http(use_cache=False, transport=httpx.MockTransport(_raw_refused_handler(seen, 429)))
+    result = route.check(http, "acme/widget")
+    assert result.status == "found", result.summary
+    assert "Follow SECURITY.md: email security@acme.example" in result.summary
+    assert "https://api.github.com/repos/acme/widget/contents/SECURITY.md" in seen
+
+
+def test_missing_security_md_does_not_spend_api_quota():
+    from predisclose.checks import route
+
+    seen = []
+    http = Http(use_cache=False, transport=httpx.MockTransport(_raw_refused_handler(seen, 404)))
+    assert route.check(http, "acme/widget").status == "none"
+    assert not any("/contents/" in u for u in seen)

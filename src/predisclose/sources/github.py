@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import re
 from typing import Any
 from urllib.parse import quote
@@ -26,9 +28,24 @@ def private_reporting_enabled(http: Http, repo: str) -> bool | None:
 
 
 def raw_file(http: Http, repo: str, path: str) -> str | None:
-    """Read a file from the default branch without spending API quota."""
+    """
+    Read a file from the default branch without spending API quota. raw.githubusercontent.com
+    sometimes refuses requests (HTTP 429 from shared CI addresses); only a 404 means the file is
+    missing, so any other failure is retried once through the contents API.
+    """
     status, text = http.get_text(f"{RAW}/{repo}/HEAD/{path}")
-    return text if status == 200 and text else None
+    if status == 200:
+        return text or None
+    if status == 404:
+        return None
+    status, data = http.get_json(f"{API}/repos/{repo}/contents/{quote(path)}")
+    if status != 200 or not isinstance(data, dict) or data.get("encoding") != "base64":
+        return None
+    try:
+        decoded = base64.b64decode(str(data.get("content") or ""), validate=False)
+    except (ValueError, binascii.Error):
+        return None
+    return decoded.decode("utf-8", errors="replace") or None
 
 
 GO_PSEUDO = re.compile(r"v\d+\.\d+\.\d+-(?:[0-9A-Za-z.]+\.)?(?:0\.)?\d{14}-([0-9a-f]{12})(?:\+incompatible)?")
